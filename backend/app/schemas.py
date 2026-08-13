@@ -261,6 +261,25 @@ class ValidationResult(BaseModel):
     errors: list[str]
 
 
+class GridRoleUpdate(BaseModel):
+    role_id: int
+    ftes_by_month: dict[str, float] = Field(
+        ..., description="Map of YYYY-MM to FTE value for every project month"
+    )
+
+    @field_validator("ftes_by_month")
+    @classmethod
+    def non_negative(cls, v):
+        for month, fte in v.items():
+            if fte < 0:
+                raise ValueError(f"FTE for {month} cannot be negative")
+        return v
+
+
+class ResourceGridUpdate(BaseModel):
+    roles: list[GridRoleUpdate]
+
+
 class TemplateRoleOut(BaseModel):
     name: str
     location: str

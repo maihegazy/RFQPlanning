@@ -83,6 +83,15 @@ export const api = {
   deleteRole: (roleId: number) =>
     request<void>(`/api/roles/${roleId}`, { method: 'DELETE' }),
 
+  updateResourceGrid: (
+    projectId: number,
+    roles: { role_id: number; ftes_by_month: Record<string, number> }[],
+  ) =>
+    request<Project>(`/api/projects/${projectId}/resource-grid`, {
+      method: 'PUT',
+      body: JSON.stringify({ roles }),
+    }),
+
   getRates: (projectId: number) =>
     request<RateConfig>(`/api/projects/${projectId}/rates`),
   updateRates: (projectId: number, data: Partial<RateConfig>) =>

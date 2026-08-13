@@ -238,6 +238,71 @@ def test_templates(client):
     assert resp.status_code == 422
 
 
+def test_resource_grid_update(client):
+    # Fresh project with one feature and two roles
+    resp = client.post("/api/projects", json={
+        "name": "Grid", "company": "V",
+        "start_year": 2026, "start_month": 1, "end_year": 2026, "end_month": 6,
+    })
+    pid = resp.json()["id"]
+    fid = client.post(f"/api/projects/{pid}/features",
+                      json={"name": "F1"}).json()["id"]
+    r1 = client.post(f"/api/features/{fid}/roles", json={
+        "name": "Dev", "location": "BCC", "level": "Senior", "ftes": 1.0,
+    }).json()["id"]
+    r2 = client.post(f"/api/features/{fid}/roles", json={
+        "name": "Tester", "location": "BCC", "level": "Standard", "ftes": 1.0,
+    }).json()["id"]
+
+    # r1: varying series -> compressed into periods; r2: uniform -> fixed
+    resp = client.put(f"/api/projects/{pid}/resource-grid", json={
+        "roles": [
+            {"role_id": r1, "ftes_by_month": {
+                "2026-01": 0.5, "2026-02": 0.5, "2026-03": 1.0,
+                "2026-04": 1.0, "2026-05": 0.0, "2026-06": 0.8,
+            }},
+            {"role_id": r2, "ftes_by_month": {
+                m: 0.6 for m in ["2026-01", "2026-02", "2026-03",
+                                 "2026-04", "2026-05", "2026-06"]
+            }},
+        ],
+    })
+    assert resp.status_code == 200, resp.text
+    project = resp.json()
+    roles = {r["id"]: r for r in project["features"][0]["roles"]}
+
+    assert roles[r1]["use_advanced_allocation"] is True
+    periods = [(a["start_month"], a["end_month"], a["ftes"])
+               for a in roles[r1]["allocations"]]
+    assert periods == [
+        ("2026-01", "2026-02", 0.5),
+        ("2026-03", "2026-04", 1.0),
+        ("2026-06", "2026-06", 0.8),
+    ]
+
+    assert roles[r2]["use_advanced_allocation"] is False
+    assert roles[r2]["ftes"] == 0.6
+    assert roles[r2]["allocations"] == []
+
+    # Resource plan reflects the grid exactly
+    pivots = client.get(
+        f"/api/projects/{pid}/reports/resource-plan").json()["yearly_pivots"]
+    grand = next(r for r in pivots[0]["rows"] if r["Feature"] == "TOTAL")
+    assert grand["Total"] == pytest.approx(0.5*2 + 1.0*2 + 0.8 + 0.6*6)
+
+    # Unknown role rejected
+    resp = client.put(f"/api/projects/{pid}/resource-grid", json={
+        "roles": [{"role_id": 999999, "ftes_by_month": {"2026-01": 1.0}}],
+    })
+    assert resp.status_code == 404
+
+    # Negative FTE rejected
+    resp = client.put(f"/api/projects/{pid}/resource-grid", json={
+        "roles": [{"role_id": r1, "ftes_by_month": {"2026-01": -1.0}}],
+    })
+    assert resp.status_code == 422
+
+
 def test_export_import_roundtrip(client, project_id):
     resp = client.get(f"/api/projects/{project_id}/export")
     assert resp.status_code == 200
