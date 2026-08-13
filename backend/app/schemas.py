@@ -116,7 +116,7 @@ class ProjectBase(BaseModel):
 
 
 class ProjectCreate(ProjectBase):
-    pass
+    template_id: Optional[str] = None
 
 
 class ProjectUpdate(BaseModel):
@@ -259,6 +259,25 @@ class ResourcePlanOut(BaseModel):
 class ValidationResult(BaseModel):
     valid: bool
     errors: list[str]
+
+
+class TemplateRoleOut(BaseModel):
+    name: str
+    location: str
+    level: str
+    ftes: float
+
+
+class TemplateFeatureOut(BaseModel):
+    name: str
+    roles: list[TemplateRoleOut]
+
+
+class TemplateOut(BaseModel):
+    id: str
+    name: str
+    description: str
+    features: list[TemplateFeatureOut]
 
 
 class MetaOut(BaseModel):

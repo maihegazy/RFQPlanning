@@ -183,6 +183,61 @@ def test_validation(client, project_id):
     assert "At least one feature is required" in resp.json()["errors"]
 
 
+def test_templates(client):
+    resp = client.get("/api/templates")
+    assert resp.status_code == 200
+    templates = resp.json()
+    assert [t["id"] for t in templates] == [
+        "basic-software", "application-software", "safety"]
+
+    # Create a project from the basic-software template
+    resp = client.post("/api/projects", json={
+        "name": "Templated", "company": "Vehiclevo",
+        "start_year": 2026, "start_month": 1, "end_year": 2026, "end_month": 12,
+        "template_id": "basic-software",
+    })
+    assert resp.status_code == 201, resp.text
+    project = resp.json()
+    feature_names = [f["name"] for f in project["features"]]
+    assert feature_names == [
+        "Network", "Cyber Security", "Functional Safety", "Diagnostics",
+        "Programming", "Life Cycle", "Calibration", "Project Management",
+    ]
+    network = project["features"][0]
+    assert [(r["name"], r["location"], r["level"]) for r in network["roles"]] == [
+        ("Developer", "BCC", "FO"),
+        ("Tester", "BCC", "Standard"),
+        ("Developer", "BCC", "Junior"),
+    ]
+    mgmt = project["features"][-1]
+    assert [r["name"] for r in mgmt["roles"]] == [
+        "Project Lead (PL)", "Technical Lead (TL)", "Integrator"]
+    # Templated project passes validation out of the box
+    resp = client.get(f"/api/projects/{project['id']}/validate")
+    assert resp.json()["valid"] is True
+
+    # Safety template roles
+    resp = client.post("/api/projects", json={
+        "name": "Safety", "company": "Vehiclevo",
+        "start_year": 2026, "start_month": 1, "end_year": 2026, "end_month": 12,
+        "template_id": "safety",
+    })
+    project = resp.json()
+    assert [f["name"] for f in project["features"]] == [
+        "Safety Analysis", "Safety Enhancement", "Project Management"]
+    analysis = project["features"][0]
+    assert [(r["name"], r["level"]) for r in analysis["roles"]] == [
+        ("Developer", "FO"), ("Developer", "Principal")]
+
+    # Unknown template rejected
+    resp = client.post("/api/projects", json={
+        "name": "X", "company": "Y",
+        "start_year": 2026, "start_month": 1, "end_year": 2026, "end_month": 12,
+        "template_id": "nope",
+    })
+    assert resp.status_code == 422
+
+
 def test_export_import_roundtrip(client, project_id):
     resp = client.get(f"/api/projects/{project_id}/export")
     assert resp.status_code == 200

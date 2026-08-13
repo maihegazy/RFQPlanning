@@ -124,6 +124,25 @@ export interface ValidationResult {
   errors: string[]
 }
 
+export interface TemplateRole {
+  name: string
+  location: string
+  level: string
+  ftes: number
+}
+
+export interface TemplateFeature {
+  name: string
+  roles: TemplateRole[]
+}
+
+export interface ProjectTemplate {
+  id: string
+  name: string
+  description: string
+  features: TemplateFeature[]
+}
+
 export interface Meta {
   locations: string[]
   levels: string[]

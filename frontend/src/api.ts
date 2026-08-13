@@ -4,6 +4,7 @@ import type {
   Meta,
   Project,
   ProjectSummary,
+  ProjectTemplate,
   RateConfig,
   ResourcePlan,
   Role,
@@ -43,9 +44,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   getMeta: () => request<Meta>('/api/meta'),
+  listTemplates: () => request<ProjectTemplate[]>('/api/templates'),
 
   listProjects: () => request<ProjectSummary[]>('/api/projects'),
-  createProject: (data: Partial<ProjectSummary>) =>
+  createProject: (data: Partial<ProjectSummary> & { template_id?: string | null }) =>
     request<Project>('/api/projects', { method: 'POST', body: JSON.stringify(data) }),
   getProject: (id: number) => request<Project>(`/api/projects/${id}`),
   updateProject: (id: number, data: Partial<ProjectSummary>) =>
