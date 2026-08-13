@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from .. import models, schemas
 from ..database import get_db
+from ..services import calculations
 from .projects import get_project_or_404
 
 router = APIRouter(prefix="/api", tags=["features"])
@@ -108,3 +109,57 @@ def delete_role(role_id: int, db: Session = Depends(get_db)):
     role = get_role_or_404(role_id, db)
     db.delete(role)
     db.commit()
+
+
+@router.put("/projects/{project_id}/resource-grid",
+            response_model=schemas.ProjectOut)
+def update_resource_grid(project_id: int, data: schemas.ResourceGridUpdate,
+                         db: Session = Depends(get_db)):
+    """Bulk-update monthly FTE allocations from the spreadsheet grid view.
+
+    Each role's per-month series is compressed back into the storage model:
+    a uniform series becomes a fixed FTE, anything else becomes variable
+    allocation periods (consecutive equal non-zero months merged).
+    """
+    project = get_project_or_404(project_id, db)
+    months = calculations.get_project_months(project)
+    if not months:
+        raise HTTPException(status_code=400, detail="No months in the selected period.")
+
+    project_roles = {
+        role.id: role
+        for feature in project.features
+        for role in feature.roles
+    }
+
+    for entry in data.roles:
+        role = project_roles.get(entry.role_id)
+        if role is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Role {entry.role_id} not found in this project",
+            )
+
+        values = [float(entry.ftes_by_month.get(m, 0.0)) for m in months]
+        compressed = calculations.compress_monthly_ftes(months, values)
+
+        for alloc in list(role.allocations):
+            db.delete(alloc)
+        db.flush()
+
+        if "fixed" in compressed:
+            role.ftes = compressed["fixed"]
+            role.use_advanced_allocation = False
+        else:
+            role.use_advanced_allocation = True
+            for start_month, end_month, fte in compressed["periods"]:
+                db.add(models.AllocationPeriod(
+                    role_id=role.id,
+                    start_month=start_month,
+                    end_month=end_month,
+                    ftes=fte,
+                ))
+
+    db.commit()
+    db.refresh(project)
+    return project

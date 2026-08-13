@@ -3,6 +3,7 @@ import { api } from '../api'
 import type { Feature, Meta, Project, Role } from '../types'
 import { Button, Card, EmptyState, ErrorBanner, Input, Modal } from '../components/ui'
 import RoleModal from '../components/RoleModal'
+import ResourceGrid from '../components/ResourceGrid'
 
 export default function ResourcesTab({
   project,
@@ -14,6 +15,7 @@ export default function ResourcesTab({
   onChanged: () => void
 }) {
   const [error, setError] = useState('')
+  const [view, setView] = useState<'list' | 'grid'>('list')
   const [showAddFeature, setShowAddFeature] = useState(false)
   const [editingFeature, setEditingFeature] = useState<Feature | null>(null)
   const [roleModal, setRoleModal] = useState<{ feature: Feature; role: Role | null } | null>(null)
@@ -42,11 +44,33 @@ export default function ResourcesTab({
     <div className="space-y-6">
       {error && <ErrorBanner message={error} />}
 
-      <div className="flex justify-end">
+      <div className="flex items-center justify-between">
+        <div className="flex rounded-lg border border-slate-700 p-0.5">
+          {(
+            [
+              ['list', 'List View'],
+              ['grid', 'Planning Grid'],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setView(key)}
+              className={`rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors ${
+                view === key
+                  ? 'bg-indigo-600 text-white'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         <Button onClick={() => setShowAddFeature(true)}>+ Add Feature</Button>
       </div>
 
-      {project.features.length === 0 ? (
+      {view === 'grid' ? (
+        <ResourceGrid key={project.updated_at} project={project} onChanged={onChanged} />
+      ) : project.features.length === 0 ? (
         <EmptyState>
           No features yet. Add a feature, then add roles with their FTE allocations.
         </EmptyState>

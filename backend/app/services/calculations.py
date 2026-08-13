@@ -269,6 +269,29 @@ def generate_budget_pivots(budget_rows: list[dict]) -> list[dict]:
     return _pivot_by_year(budget_rows, "selling_price")
 
 
+def compress_monthly_ftes(months: list[str], values: list[float]) -> dict:
+    """Compress a per-month FTE series into the role storage model.
+
+    Returns {"fixed": fte} when every month has the same value, otherwise
+    {"periods": [(start_month, end_month, fte), ...]} with consecutive
+    equal non-zero values merged into single periods.
+    """
+    if not months:
+        return {"fixed": 0.0}
+
+    if all(v == values[0] for v in values):
+        return {"fixed": values[0]}
+
+    periods = []
+    run_start = 0
+    for i in range(1, len(months) + 1):
+        if i == len(months) or values[i] != values[run_start]:
+            if values[run_start] != 0:
+                periods.append((months[run_start], months[i - 1], values[run_start]))
+            run_start = i
+    return {"periods": periods}
+
+
 def validate_project(project: models.Project) -> list[str]:
     """Full project validation ported from the desktop models."""
     errors = []
