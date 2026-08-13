@@ -1,0 +1,114 @@
+# RFQ Planner — Web Application
+
+A modern, production-ready web version of the Vehiclevo RFQ Planner. It preserves
+the original desktop app's complete business logic — resource planning with
+period-based FTE allocation, cost-profit analysis, ticket-based pricing and
+formatted Excel reports — as a web application built on:
+
+| Layer    | Technology                          |
+| -------- | ----------------------------------- |
+| Frontend | React 18 + TypeScript (Vite)        |
+| UI       | Tailwind CSS 4                      |
+| Backend  | Python 3.12 + FastAPI               |
+| Database | PostgreSQL + SQLAlchemy 2           |
+| API      | RESTful JSON + Excel downloads      |
+
+No authentication/authorization — designed to run behind an existing system.
+
+## Quick start (Docker)
+
+```bash
+docker compose up --build
+```
+
+- Web app: http://localhost:8080
+- API + interactive docs: http://localhost:8000/docs
+
+## Local development
+
+**Backend** (requires PostgreSQL, or set `DATABASE_URL` to any SQLAlchemy URL —
+SQLite works for development):
+
+```bash
+cd backend
+pip install -r requirements.txt
+export DATABASE_URL=postgresql://rfq:rfq@localhost:5432/rfqplanner  # or sqlite:///./dev.db
+uvicorn app.main:app --reload
+```
+
+**Frontend** (dev server proxies `/api` to `http://localhost:8000`):
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+**Tests**:
+
+```bash
+cd backend
+python3 -m pytest tests/
+```
+
+## Application concepts (unchanged from the desktop app)
+
+- **Project** — name, company and a month-granular timeline (start/end year+month).
+- **Features & Roles** — each feature holds roles with a location (`BCC`, `HCC`,
+  `MCC`) and a level (`PM/TL`, `FO`, `Principal`, `Senior`, `Standard`, `Junior`).
+- **FTE allocation** — a role has either a fixed FTE (0–2.0) or *variable
+  allocation periods* (`YYYY-MM` ranges with individual FTE values, no overlap).
+- **Rate configuration** — hourly sell rates per location, hourly cost rates per
+  location+level, SP→hours conversion, hardware cost per hour, risk factor %.
+- **Ticket configuration** — story points and price per ticket size
+  (small/medium/large) plus per-year quota percentages.
+- **Calculations** — 160 man-hours per FTE-month; cost-profit summary by year and
+  location; ticket analysis with risk/hardware-adjusted hourly rates; per-year
+  pivot tables with location subtotals and grand totals.
+- **Reports** — budget plan and resource plan as JSON (rendered in the Reports
+  tab) or as formatted Excel workbooks (Config, CostProfit and per-year sheets,
+  matching the original layout).
+- **Import/export** — projects round-trip through the desktop app's JSON format
+  (`POST /api/projects/import`, `GET /api/projects/{id}/export`).
+
+## REST API overview
+
+| Method   | Path                                            | Purpose                          |
+| -------- | ----------------------------------------------- | -------------------------------- |
+| GET      | `/api/meta`                                     | Locations, levels, ticket sizes  |
+| GET/POST | `/api/projects`                                 | List / create projects           |
+| GET/PUT/DELETE | `/api/projects/{id}`                      | Read / update / delete a project |
+| GET      | `/api/projects/{id}/validate`                   | Full project validation          |
+| GET      | `/api/projects/{id}/export`                     | Export legacy JSON               |
+| POST     | `/api/projects/import`                          | Import legacy JSON               |
+| GET/POST | `/api/projects/{id}/features`                   | List / add features              |
+| PUT/DELETE | `/api/features/{id}`                          | Rename / delete a feature        |
+| POST     | `/api/features/{id}/roles`                      | Add a role (with allocations)    |
+| PUT/DELETE | `/api/roles/{id}`                             | Update / delete a role           |
+| GET/PUT  | `/api/projects/{id}/rates`                      | Read / update rate configuration |
+| GET      | `/api/projects/{id}/reports/resource-plan`      | Resource pivots (JSON)           |
+| GET      | `/api/projects/{id}/reports/budget-plan`        | Budget analyses (JSON)           |
+| GET      | `/api/projects/{id}/reports/resource-plan.xlsx` | Resource plan workbook           |
+| GET      | `/api/projects/{id}/reports/budget-plan.xlsx`   | Budget plan workbook             |
+
+## Project structure
+
+```
+├── backend/
+│   ├── app/
+│   │   ├── main.py            # FastAPI app
+│   │   ├── config.py          # Domain constants (levels, locations, …)
+│   │   ├── database.py        # SQLAlchemy engine/session
+│   │   ├── models.py          # ORM models
+│   │   ├── schemas.py         # Pydantic schemas
+│   │   ├── routers/           # REST endpoints
+│   │   └── services/          # Business logic (calculations, Excel export)
+│   └── tests/                 # End-to-end API tests
+├── frontend/
+│   └── src/
+│       ├── api.ts             # Typed API client
+│       ├── pages/             # Projects list, project workspace
+│       ├── tabs/              # Info / Resources / Budget / Reports tabs
+│       └── components/        # UI kit, role & allocation editor
+└── docker-compose.yml         # PostgreSQL + backend + frontend (nginx)
+```
