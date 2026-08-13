@@ -8,6 +8,7 @@ from ..config import LEVELS, LOCATIONS, TICKET_SIZES
 from ..database import get_db
 from ..services import calculations
 from ..services.rate_config import get_rate_config
+from ..templates import get_template
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -26,8 +27,32 @@ def list_projects(db: Session = Depends(get_db)):
 
 @router.post("", response_model=schemas.ProjectOut, status_code=201)
 def create_project(data: schemas.ProjectCreate, db: Session = Depends(get_db)):
-    project = models.Project(**data.model_dump())
+    template = None
+    if data.template_id:
+        template = get_template(data.template_id)
+        if template is None:
+            raise HTTPException(status_code=422,
+                                detail=f"Unknown template: {data.template_id}")
+
+    project = models.Project(**data.model_dump(exclude={"template_id"}))
     db.add(project)
+    db.flush()
+
+    if template:
+        for feature_def in template["features"]:
+            feature = models.Feature(project_id=project.id, name=feature_def["name"])
+            db.add(feature)
+            db.flush()
+            for role_name, location, level, ftes in feature_def["roles"]:
+                db.add(models.Role(
+                    feature_id=feature.id,
+                    name=role_name,
+                    location=location,
+                    level=level,
+                    ftes=ftes,
+                    use_advanced_allocation=False,
+                ))
+
     db.commit()
     db.refresh(project)
     return project

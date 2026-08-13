@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
-import type { ProjectSummary } from '../types'
+import type { ProjectSummary, ProjectTemplate } from '../types'
 import { Button, Card, ErrorBanner, EmptyState, Input, Label, Modal, Select, Spinner } from '../components/ui'
 import { MONTH_NAMES } from '../utils'
 
@@ -117,6 +117,38 @@ export default function ProjectsPage() {
   )
 }
 
+function TemplateOption({
+  selected,
+  onSelect,
+  title,
+  description,
+  detail,
+}: {
+  selected: boolean
+  onSelect: () => void
+  title: string
+  description: string
+  detail?: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`rounded-lg border p-3 text-left transition-colors ${
+        selected
+          ? 'border-indigo-500 bg-indigo-950/40'
+          : 'border-slate-700 bg-slate-900 hover:border-slate-500'
+      }`}
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold text-slate-100">{title}</span>
+        {detail && <span className="text-[11px] text-slate-500">{detail}</span>}
+      </div>
+      <p className="mt-1 text-xs leading-relaxed text-slate-400">{description}</p>
+    </button>
+  )
+}
+
 function CreateProjectModal({
   onClose,
   onCreated,
@@ -131,8 +163,14 @@ function CreateProjectModal({
   const [startMonth, setStartMonth] = useState(now.getMonth() + 1)
   const [endYear, setEndYear] = useState(now.getFullYear() + 1)
   const [endMonth, setEndMonth] = useState(now.getMonth() + 1)
+  const [templates, setTemplates] = useState<ProjectTemplate[]>([])
+  const [templateId, setTemplateId] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    api.listTemplates().then(setTemplates).catch(() => setTemplates([]))
+  }, [])
 
   const submit = async () => {
     setSaving(true)
@@ -145,6 +183,7 @@ function CreateProjectModal({
         start_month: startMonth,
         end_year: endYear,
         end_month: endMonth,
+        template_id: templateId,
       })
       onCreated()
     } catch (e) {
@@ -154,7 +193,7 @@ function CreateProjectModal({
   }
 
   return (
-    <Modal title="New Project" onClose={onClose}>
+    <Modal title="New Project" onClose={onClose} wide>
       <div className="space-y-4">
         {error && <ErrorBanner message={error} />}
         <div>
@@ -198,6 +237,44 @@ function CreateProjectModal({
               />
             </div>
           </div>
+        </div>
+        <div>
+          <Label>Template</Label>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <TemplateOption
+              selected={templateId === null}
+              onSelect={() => setTemplateId(null)}
+              title="Blank Project"
+              description="Start from scratch and add features and roles yourself."
+            />
+            {templates.map((t) => (
+              <TemplateOption
+                key={t.id}
+                selected={templateId === t.id}
+                onSelect={() => setTemplateId(t.id)}
+                title={t.name}
+                description={t.description}
+                detail={`${t.features.length} features · ${t.features.reduce(
+                  (n, f) => n + f.roles.length,
+                  0,
+                )} roles`}
+              />
+            ))}
+          </div>
+          {templateId && (
+            <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-400">
+              {templates
+                .find((t) => t.id === templateId)!
+                .features.map((f) => (
+                  <div key={f.name} className="mb-1 last:mb-0">
+                    <span className="font-medium text-slate-300">{f.name}:</span>{' '}
+                    {f.roles
+                      .map((r) => `${r.name} (${r.location} ${r.level}, ${r.ftes} FTE)`)
+                      .join(', ')}
+                  </div>
+                ))}
+            </div>
+          )}
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
