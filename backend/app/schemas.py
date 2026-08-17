@@ -205,9 +205,19 @@ class RateConfigUpdate(BaseModel):
     def valid_quota_sizes(cls, v):
         if v is not None:
             for year, sizes in v.items():
-                for size in sizes:
+                for size, pct in sizes.items():
                     if size not in TICKET_SIZES:
                         raise ValueError(f"Invalid ticket size: {size}")
+                    if pct < 0 or pct > 100:
+                        raise ValueError(
+                            f"Quota for {size} in {year} must be between 0 and 100%"
+                        )
+                total = sum(sizes.values())
+                if total > 100:
+                    raise ValueError(
+                        f"Ticket quotas for {year} sum to {total:g}% — "
+                        "the total per year cannot exceed 100%"
+                    )
         return v
 
 
