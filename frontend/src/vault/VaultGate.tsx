@@ -16,17 +16,17 @@ export function VaultStatusButton() {
         <button
           onClick={lock}
           className="flex items-center gap-1.5 rounded-lg border border-emerald-800 bg-emerald-950/50 px-3 py-1.5 text-sm text-emerald-300 hover:bg-emerald-900/50"
-          title="Money data is unlocked in this session. Click to lock."
+          title="Financial data is unlocked in this session. Click to lock."
         >
-          🔓 Money unlocked
+          🔓 Financial data unlocked
         </button>
       ) : (
         <button
           onClick={() => setShowDialog(true)}
           className="flex items-center gap-1.5 rounded-lg border border-amber-800 bg-amber-950/40 px-3 py-1.5 text-sm text-amber-300 hover:bg-amber-900/40"
-          title="Money data is locked. Click to unlock."
+          title="Financial data is locked. Click to unlock."
         >
-          🔒 {status === 'no-vault' ? 'Set up money vault' : 'Money locked'}
+          🔒 {status === 'no-vault' ? 'Set up financial vault' : 'Financial data locked'}
         </button>
       )}
       {showDialog && <VaultDialog onClose={() => setShowDialog(false)} />}
@@ -44,11 +44,11 @@ export function VaultPrompt({ children }: { children?: ReactNode }) {
       <p className="text-2xl">🔒</p>
       <p className="mt-2 text-sm text-amber-200">
         {children ??
-          'Money data is end-to-end encrypted. Unlock it to view and edit financial values.'}
+          'Financial data is end-to-end encrypted. Unlock it to view and edit it.'}
       </p>
       <div className="mt-4">
         <Button onClick={() => setShowDialog(true)}>
-          {status === 'no-vault' ? 'Set Up Money Vault' : 'Unlock Money Data'}
+          {status === 'no-vault' ? 'Set Up Financial Vault' : 'Unlock Financial Data'}
         </Button>
       </div>
       {showDialog && <VaultDialog onClose={() => setShowDialog(false)} />}
@@ -107,11 +107,11 @@ function SetupWizard({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <Modal title="Set Up Money Vault" onClose={recoveryContent ? () => {} : onClose}>
+    <Modal title="Set Up Financial Data Vault" onClose={recoveryContent ? () => {} : onClose}>
       {recoveryContent === null ? (
         <div className="space-y-4">
           <p className="text-sm leading-relaxed text-slate-400">
-            Money data (rates, costs, prices) is encrypted <em>in your browser</em> with
+            Financial data (rates, costs, prices) is encrypted <em>in your browser</em> with
             a key derived from this passphrase. Nobody with access to the database or
             server can read it — including administrators. The passphrase never leaves
             this device.
@@ -141,7 +141,7 @@ function SetupWizard({ onClose }: { onClose: () => void }) {
         <div className="space-y-4">
           <div className="rounded-lg border border-rose-800 bg-rose-950/50 px-4 py-3 text-sm text-rose-200">
             <strong>Download your recovery key now.</strong> It is shown only once. If
-            you forget the passphrase AND lose this file, your money data is
+            you forget the passphrase AND lose this file, your financial data is
             unrecoverable — by design, nobody else can decrypt it.
           </div>
           <Button onClick={downloadRecovery} className="w-full">
@@ -193,7 +193,7 @@ function UnlockDialog({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <Modal title="Unlock Money Data" onClose={onClose}>
+    <Modal title="Unlock Financial Data" onClose={onClose}>
       <form
         className="space-y-4"
         onSubmit={(e) => {

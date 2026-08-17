@@ -142,7 +142,7 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
 
       {legacyBanner && (
         <div className="rounded-lg border border-indigo-800 bg-indigo-950/50 px-4 py-3 text-sm text-indigo-200">
-          Unencrypted money values from an earlier version were found for this project.
+          Unencrypted financial values from an earlier version were found for this project.
           They are loaded below — click <strong>Save</strong> to encrypt them and remove
           the plaintext from the database.
         </div>
@@ -402,7 +402,7 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
         <Button onClick={save} disabled={saving || quotaErrors.length > 0}>
           {saving ? 'Saving…' : 'Save Budget Configuration'}
         </Button>
-        {saved && <span className="text-sm text-emerald-400">Saved ✓ {money ? '(money encrypted)' : ''}</span>}
+        {saved && <span className="text-sm text-emerald-400">Saved ✓ {money ? '(financial data encrypted)' : ''}</span>}
       </div>
     </div>
   )

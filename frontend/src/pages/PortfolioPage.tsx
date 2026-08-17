@@ -134,7 +134,7 @@ export default function PortfolioPage() {
       {vault.status !== 'unlocked' ? (
         <div className="mb-6">
           <VaultPrompt>
-            Pipeline value, weighted revenue and margins require unlocked money data.
+            Pipeline value, weighted revenue and margins require unlocked financial data.
             The capacity heatmap below works without unlocking.
           </VaultPrompt>
         </div>

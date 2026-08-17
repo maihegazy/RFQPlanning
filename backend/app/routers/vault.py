@@ -1,4 +1,4 @@
-"""Vault endpoints for end-to-end encrypted money data.
+"""Vault endpoints for end-to-end encrypted financial data.
 
 The server stores only ciphertext and wrapped keys. Passphrases, recovery
 keys and the data-encryption key never reach the server; all encryption
@@ -54,13 +54,13 @@ def change_passphrase(data: schemas.VaultPassphraseUpdate,
     return vault
 
 
-@router.get("/projects/{project_id}/money", response_model=schemas.MoneyBlob)
+@router.get("/projects/{project_id}/financial-data", response_model=schemas.MoneyBlob)
 def read_money_blob(project_id: int, db: Session = Depends(get_db)):
     project = get_project_or_404(project_id, db)
     return {"encrypted_money": project.encrypted_money, "money_iv": project.money_iv}
 
 
-@router.put("/projects/{project_id}/money", response_model=schemas.MoneyBlob)
+@router.put("/projects/{project_id}/financial-data", response_model=schemas.MoneyBlob)
 def write_money_blob(project_id: int, data: schemas.MoneyBlob,
                      db: Session = Depends(get_db)):
     project = get_project_or_404(project_id, db)
@@ -70,10 +70,10 @@ def write_money_blob(project_id: int, data: schemas.MoneyBlob,
     return {"encrypted_money": project.encrypted_money, "money_iv": project.money_iv}
 
 
-@router.get("/projects/{project_id}/money/legacy",
+@router.get("/projects/{project_id}/financial-data/legacy",
             response_model=schemas.LegacyMoneyOut)
 def read_legacy_money(project_id: int, db: Session = Depends(get_db)):
-    """One-time read of pre-encryption plaintext money for client migration."""
+    """One-time read of pre-encryption plaintext financial values for client migration."""
     project = get_project_or_404(project_id, db)
     legacy = rate_config.get_legacy_plaintext_money(project)
     has_data = (
@@ -85,9 +85,9 @@ def read_legacy_money(project_id: int, db: Session = Depends(get_db)):
     return {**legacy, "has_data": has_data}
 
 
-@router.post("/projects/{project_id}/money/purge-plaintext", status_code=204)
+@router.post("/projects/{project_id}/financial-data/purge-plaintext", status_code=204)
 def purge_legacy_money(project_id: int, db: Session = Depends(get_db)):
-    """Delete plaintext money values after the client migrated them."""
+    """Delete plaintext financial values after the client migrated them."""
     project = get_project_or_404(project_id, db)
     rate_config.purge_legacy_plaintext_money(db, project)
     db.commit()

@@ -211,26 +211,26 @@ def test_vault_lifecycle(client):
 
 
 def test_money_blob_roundtrip(client, project_id):
-    resp = client.get(f"/api/projects/{project_id}/money")
+    resp = client.get(f"/api/projects/{project_id}/financial-data")
     assert resp.json() == {"encrypted_money": None, "money_iv": None}
 
     blob = {"encrypted_money": "b3BhcXVlLWNpcGhlcnRleHQ=", "money_iv": "aXZpdml2"}
-    resp = client.put(f"/api/projects/{project_id}/money", json=blob)
+    resp = client.put(f"/api/projects/{project_id}/financial-data", json=blob)
     assert resp.status_code == 200
 
-    resp = client.get(f"/api/projects/{project_id}/money")
+    resp = client.get(f"/api/projects/{project_id}/financial-data")
     assert resp.json() == blob
 
 
 def test_legacy_money_migration(client, project_id):
     # Fresh project has no legacy plaintext money
-    resp = client.get(f"/api/projects/{project_id}/money/legacy")
+    resp = client.get(f"/api/projects/{project_id}/financial-data/legacy")
     assert resp.status_code == 200
     assert resp.json()["has_data"] is False
 
     # Purge is idempotent and safe on empty data
     assert client.post(
-        f"/api/projects/{project_id}/money/purge-plaintext").status_code == 204
+        f"/api/projects/{project_id}/financial-data/purge-plaintext").status_code == 204
 
 
 def test_no_plaintext_money_in_db(client, project_id):
@@ -451,8 +451,8 @@ def test_scenarios(client, project_id):
     assert base_plan == scen_plan
 
     # Money blob copied verbatim
-    base_money = client.get(f"/api/projects/{project_id}/money").json()
-    scen_money = client.get(f"/api/projects/{scenario['id']}/money").json()
+    base_money = client.get(f"/api/projects/{project_id}/financial-data").json()
+    scen_money = client.get(f"/api/projects/{scenario['id']}/financial-data").json()
     assert base_money == scen_money
 
     # Promote exclusivity
@@ -526,5 +526,5 @@ def test_export_import_roundtrip(client, project_id):
     resp = client.post("/api/projects/import", json=legacy_file)
     assert resp.status_code == 201
     pid = resp.json()["id"]
-    resp = client.get(f"/api/projects/{pid}/money/legacy")
+    resp = client.get(f"/api/projects/{pid}/financial-data/legacy")
     assert resp.json()["has_data"] is False

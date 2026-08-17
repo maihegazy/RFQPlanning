@@ -146,16 +146,16 @@ export const api = {
     wrapped_dek_recovery: string
   }) => request<VaultInfo>('/api/vault', { method: 'POST', body: JSON.stringify(keys) }),
   getMoneyBlob: (projectId: number) =>
-    request<MoneyBlob>(`/api/projects/${projectId}/money`),
+    request<MoneyBlob>(`/api/projects/${projectId}/financial-data`),
   putMoneyBlob: (projectId: number, blob: MoneyBlob) =>
-    request<MoneyBlob>(`/api/projects/${projectId}/money`, {
+    request<MoneyBlob>(`/api/projects/${projectId}/financial-data`, {
       method: 'PUT',
       body: JSON.stringify(blob),
     }),
   getLegacyMoney: (projectId: number) =>
-    request<LegacyMoney>(`/api/projects/${projectId}/money/legacy`),
+    request<LegacyMoney>(`/api/projects/${projectId}/financial-data/legacy`),
   purgeLegacyMoney: (projectId: number) =>
-    request<void>(`/api/projects/${projectId}/money/purge-plaintext`, { method: 'POST' }),
+    request<void>(`/api/projects/${projectId}/financial-data/purge-plaintext`, { method: 'POST' }),
 }
 
 export { ApiError }
