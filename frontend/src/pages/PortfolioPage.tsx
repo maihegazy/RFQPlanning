@@ -7,7 +7,7 @@ import { MONTH_NAMES, formatEuro, formatNumber } from '../utils'
 import { useVault } from '../vault/VaultContext'
 import { VaultPrompt, VaultStatusButton } from '../vault/VaultGate'
 import { computeBudgetPlan } from '../money/engine'
-import { emptyMoneyConfig, type MoneyConfig } from '../money/types'
+import { emptyMoneyConfig, normalizeMoneyConfig, type MoneyConfig } from '../money/types'
 
 const ALL_STATUSES = ['draft', 'quoted', 'won', 'lost']
 const STATUS_WEIGHT: Record<string, (p: ProjectSummary) => number> = {
@@ -55,10 +55,12 @@ export default function PortfolioPage() {
         ])
         const money =
           blob.encrypted_money && blob.money_iv
-            ? await vault.decrypt<MoneyConfig>({
-                iv: blob.money_iv,
-                ciphertext: blob.encrypted_money,
-              })
+            ? normalizeMoneyConfig(
+                await vault.decrypt<MoneyConfig>({
+                  iv: blob.money_iv,
+                  ciphertext: blob.encrypted_money,
+                }),
+              )
             : emptyMoneyConfig(meta.locations, meta.levels, meta.ticket_sizes)
         const plan = computeBudgetPlan(full, money, rates)
         const revenue = plan.cost_profit_overall.reduce((s, r) => s + r.selling_price, 0)

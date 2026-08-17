@@ -154,6 +154,24 @@ function writeCostProfitSheet(wb: ExcelJS.Workbook, plan: BudgetPlan) {
     row += 2
   }
 
+  if (plan.non_labor_summary.length > 0) {
+    setCell(sheet, row, 0, 'Non-Labor Costs', {
+      bold: true, fontSize: 14, fontColor: DARK, align: 'left', border: false,
+    })
+    row += 2
+    const nlHeaders = ['Year', 'Category', 'Cost', 'Billed']
+    nlHeaders.forEach((h, col) => setCell(sheet, row, col, h, { bold: true, bg: YELLOW }))
+    row += 1
+    for (const r of plan.non_labor_summary) {
+      setCell(sheet, row, 0, r.year)
+      setCell(sheet, row, 1, r.category)
+      setCell(sheet, row, 2, r.cost, { numFmt: EURO_FMT })
+      setCell(sheet, row, 3, r.billed, { numFmt: EURO_FMT })
+      row += 1
+    }
+    row += 2
+  }
+
   row += 2
   setCell(sheet, row, 0, 'Ticket Analysis', {
     bold: true,
@@ -244,6 +262,8 @@ function writeConfigSheet(
   row += 1
   label(row, 0, 'Risk Factor %:')
   value(row, 1, rates.risk_factor_pct, NUM_FMT)
+  label(row, 2, 'Rate Escalation %/yr:')
+  value(row, 3, money.rate_escalation_pct ?? 0, NUM_FMT)
   row += 2
 
   sectionHeader('HOURLY SELL RATES')
@@ -284,6 +304,26 @@ function writeConfigSheet(
       setCell(sheet, row, 3 + i, rates.ticket_quotas[y]?.[key] ?? 0, { numFmt: NUM_FMT })
     })
     row += 1
+  }
+
+  if ((money.cost_items ?? []).length > 0) {
+    row += 1
+    sectionHeader('NON-LABOR COST ITEMS')
+    const itemHeaders = ['Name', 'Category', 'Amount (€)', 'Type', 'From', 'To', 'Billed']
+    itemHeaders.forEach((h, col) =>
+      setCell(sheet, row, col, h, { bold: true, bg: DARK, fontColor: 'FFFFFFFF' }),
+    )
+    row += 1
+    for (const item of money.cost_items) {
+      setCell(sheet, row, 0, item.name, { align: 'left' })
+      setCell(sheet, row, 1, item.category)
+      setCell(sheet, row, 2, item.amount, { numFmt: NUM_FMT })
+      setCell(sheet, row, 3, item.is_recurring ? 'Monthly' : 'One-time')
+      setCell(sheet, row, 4, item.start_month)
+      setCell(sheet, row, 5, item.end_month ?? '')
+      setCell(sheet, row, 6, item.pass_through ? 'Yes' : 'No')
+      row += 1
+    }
   }
 
   for (let c = 1; c <= 4; c++) sheet.getColumn(c).width = 20

@@ -5,7 +5,8 @@ import { Button, Card, ErrorBanner, Input, Label, Spinner } from '../components/
 import { projectYears } from '../utils'
 import { useVault } from '../vault/VaultContext'
 import { VaultPrompt } from '../vault/VaultGate'
-import { emptyMoneyConfig, type MoneyConfig } from '../money/types'
+import { emptyMoneyConfig, normalizeMoneyConfig, type MoneyConfig } from '../money/types'
+import CostItemsEditor from '../components/CostItemsEditor'
 
 export default function BudgetTab({ project, meta }: { project: Project; meta: Meta }) {
   const vault = useVault()
@@ -26,10 +27,12 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
       const blob = await api.getMoneyBlob(project.id)
       if (blob.encrypted_money && blob.money_iv) {
         setMoney(
-          await vault.decrypt<MoneyConfig>({
-            iv: blob.money_iv,
-            ciphertext: blob.encrypted_money,
-          }),
+          normalizeMoneyConfig(
+            await vault.decrypt<MoneyConfig>({
+              iv: blob.money_iv,
+              ciphertext: blob.encrypted_money,
+            }),
+          ),
         )
       } else {
         // No blob yet — check for pre-encryption plaintext to migrate
@@ -165,20 +168,39 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
             </div>
           </Card>
 
-          <Card title="Hardware Cost (€ / hour) 🔐">
-            <div className="max-w-40">
-              <Label>HW Cost / Hour</Label>
-              <Input
-                type="number"
-                min={0}
-                step={0.5}
-                value={money.hw_cost_per_hour}
-                onChange={(e) =>
-                  editMoney((m) => {
-                    m.hw_cost_per_hour = Number(e.target.value)
-                  })
-                }
-              />
+          <Card title="Hardware Cost & Escalation 🔐">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>HW Cost / Hour (€)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={0.5}
+                  value={money.hw_cost_per_hour}
+                  onChange={(e) =>
+                    editMoney((m) => {
+                      m.hw_cost_per_hour = Number(e.target.value)
+                    })
+                  }
+                />
+              </div>
+              <div>
+                <Label>Rate escalation (% / year)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={0.5}
+                  value={money.rate_escalation_pct}
+                  onChange={(e) =>
+                    editMoney((m) => {
+                      m.rate_escalation_pct = Number(e.target.value)
+                    })
+                  }
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Compounds yearly from the project's first year (sell &amp; cost rates).
+                </p>
+              </div>
             </div>
           </Card>
         </div>
@@ -222,6 +244,16 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
               </tbody>
             </table>
           </div>
+        </Card>
+      )}
+
+      {!moneyLocked && money && (
+        <Card title="Non-Labor Cost Items 🔐">
+          <CostItemsEditor
+            project={project}
+            items={money.cost_items}
+            onChange={(items) => editMoney((m) => { m.cost_items = items })}
+          />
         </Card>
       )}
 

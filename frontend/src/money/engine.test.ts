@@ -71,6 +71,8 @@ const money: MoneyConfig = {
   },
   hw_cost_per_hour: 2.0,
   ticket_prices: { small: 500, medium: 1200, large: 2500 },
+  rate_escalation_pct: 0,
+  cost_items: [],
 }
 
 const rates: RateConfig = {
@@ -148,6 +150,60 @@ describe('money engine (golden master vs. original Python implementation)', () =
     // 2027: Jan-Jun, Dev 6*160h*100 + Architect 6*160h*80
     const grand2027 = plan.yearly_pivots[1].rows.find((r) => r['Feature'] === 'TOTAL')!
     expect(grand2027['Total'] as number).toBeCloseTo(6 * 160 * 100 + 6 * 160 * 80)
+  })
+
+  it('yearly rate escalation compounds from the start year', () => {
+    const escalated = computeBudgetPlan(
+      project,
+      { ...money, rate_escalation_pct: 10 },
+      rates,
+    )
+    const y2026 = escalated.cost_profit_overall.find((r) => r.year === '2026')!
+    const y2027 = escalated.cost_profit_overall.find((r) => r.year === '2027')!
+    // Year 1 unchanged; year 2 rates are exactly 1.1x
+    expect(y2026.selling_price).toBeCloseTo(1920 * 100 + 1440 * 80)
+    // 2027 Jan-Jun: Dev 6*160h*100*1.1 + Architect 6*160h*80*1.1
+    expect(y2027.selling_price).toBeCloseTo((6 * 160 * 100 + 6 * 160 * 80) * 1.1)
+  })
+
+  it('cost items: one-time, recurring clipping and pass-through', () => {
+    const withItems = computeBudgetPlan(
+      project,
+      {
+        ...money,
+        cost_items: [
+          // one-time inside the project
+          { name: 'HIL bench', category: 'hardware', amount: 50000, is_recurring: false, start_month: '2026-03', end_month: null, pass_through: false },
+          // one-time OUTSIDE the project range -> ignored
+          { name: 'Stale', category: 'other', amount: 99999, is_recurring: false, start_month: '2030-01', end_month: null, pass_through: false },
+          // recurring license clipped to 2027 (Jan-Jun = 6 months)
+          { name: 'Tool license', category: 'license', amount: 1000, is_recurring: true, start_month: '2027-01', end_month: '2027-12', pass_through: true },
+        ],
+      },
+      rates,
+    )
+    const nl2026 = withItems.non_labor_summary.filter((r) => r.year === '2026')
+    const nl2027 = withItems.non_labor_summary.filter((r) => r.year === '2027')
+    expect(nl2026).toEqual([{ year: '2026', category: 'hardware', cost: 50000, billed: 0 }])
+    // Project ends 2027-06 -> only 6 monthly occurrences
+    expect(nl2027).toEqual([{ year: '2027', category: 'license', cost: 6000, billed: 6000 }])
+
+    // Overall rows include non-labor: 2026 cost +50000, revenue unchanged;
+    // 2027 cost +6000 and revenue +6000 (pass-through)
+    const base = computeBudgetPlan(project, money, rates)
+    const b2026 = base.cost_profit_overall.find((r) => r.year === '2026')!
+    const w2026 = withItems.cost_profit_overall.find((r) => r.year === '2026')!
+    expect(w2026.cost).toBeCloseTo(b2026.cost + 50000)
+    expect(w2026.selling_price).toBeCloseTo(b2026.selling_price)
+    const b2027 = base.cost_profit_overall.find((r) => r.year === '2027')!
+    const w2027 = withItems.cost_profit_overall.find((r) => r.year === '2027')!
+    expect(w2027.cost).toBeCloseTo(b2027.cost + 6000)
+    expect(w2027.selling_price).toBeCloseTo(b2027.selling_price + 6000)
+
+    // Ticket overall profit also carries the non-labor cost
+    const bt = base.ticket_overall.find((r) => r.year === '2026')!
+    const wt = withItems.ticket_overall.find((r) => r.year === '2026')!
+    expect(wt.cost).toBeCloseTo(bt.cost + 50000)
   })
 
   it('zero-rate config produces zero money but correct hours', () => {

@@ -7,7 +7,7 @@ import { formatEuro, formatNumber } from '../utils'
 import { useVault } from '../vault/VaultContext'
 import { VaultPrompt } from '../vault/VaultGate'
 import { computeBudgetPlan, buildBudgetRows, projectMonths } from '../money/engine'
-import { emptyMoneyConfig, type MoneyConfig } from '../money/types'
+import { emptyMoneyConfig, normalizeMoneyConfig, type MoneyConfig } from '../money/types'
 
 interface ScenarioKpis {
   summary: ProjectSummary
@@ -58,10 +58,12 @@ export default function CompareTab({
           const blob = await api.getMoneyBlob(summary.id)
           const money =
             blob.encrypted_money && blob.money_iv
-              ? await vault.decrypt<MoneyConfig>({
-                  iv: blob.money_iv,
-                  ciphertext: blob.encrypted_money,
-                })
+              ? normalizeMoneyConfig(
+                  await vault.decrypt<MoneyConfig>({
+                    iv: blob.money_iv,
+                    ciphertext: blob.encrypted_money,
+                  }),
+                )
               : emptyMoney
           const rates = await api.getRates(summary.id)
           const plan = computeBudgetPlan(full, money, rates)

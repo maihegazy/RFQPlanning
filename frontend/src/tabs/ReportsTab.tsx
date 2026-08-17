@@ -7,7 +7,7 @@ import { useVault } from '../vault/VaultContext'
 import { VaultPrompt } from '../vault/VaultGate'
 import { computeBudgetPlan } from '../money/engine'
 import { downloadBudgetWorkbook } from '../money/excelBudget'
-import { emptyMoneyConfig, type BudgetPlan, type MoneyConfig } from '../money/types'
+import { emptyMoneyConfig, normalizeMoneyConfig, type BudgetPlan, type MoneyConfig } from '../money/types'
 
 export default function ReportsTab({ project, meta }: { project: Project; meta: Meta }) {
   const vault = useVault()
@@ -35,10 +35,12 @@ export default function ReportsTab({ project, meta }: { project: Project; meta: 
       const blob = await api.getMoneyBlob(project.id)
       const config =
         blob.encrypted_money && blob.money_iv
-          ? await vault.decrypt<MoneyConfig>({
-              iv: blob.money_iv,
-              ciphertext: blob.encrypted_money,
-            })
+          ? normalizeMoneyConfig(
+              await vault.decrypt<MoneyConfig>({
+                iv: blob.money_iv,
+                ciphertext: blob.encrypted_money,
+              }),
+            )
           : emptyMoneyConfig(meta.locations, meta.levels, meta.ticket_sizes)
       setMoney(config)
       setBudget(computeBudgetPlan(project, config, rates))
@@ -138,6 +140,36 @@ export default function ReportsTab({ project, meta }: { project: Project; meta: 
               </table>
             </div>
           </Card>
+
+          {budget.non_labor_summary.length > 0 && (
+            <Card title="Non-Labor Costs 🔐">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
+                      <th className="pb-2 pr-4">Year</th>
+                      <th className="pb-2 pr-4">Category</th>
+                      <th className="pb-2 pr-4 text-right">Cost</th>
+                      <th className="pb-2 text-right">Billed to Customer</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {budget.non_labor_summary.map((r, i) => (
+                      <tr key={i} className="border-t border-slate-800/60">
+                        <td className="py-2 pr-4">{r.year}</td>
+                        <td className="py-2 pr-4 capitalize">{r.category}</td>
+                        <td className="py-2 pr-4 text-right">{formatEuro(r.cost)}</td>
+                        <td className="py-2 text-right">{formatEuro(r.billed)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="mt-2 text-xs text-slate-500">
+                  Included in the Overall rows of the cost-profit summary above.
+                </p>
+              </div>
+            </Card>
+          )}
 
           <PivotSection
             title="Budget Plan — Selling Price by Month 🔐"
