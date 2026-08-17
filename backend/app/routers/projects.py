@@ -4,9 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
-from ..config import LEVELS, LOCATIONS, TICKET_SIZES
+from ..config import PROJECT_STATUSES, TICKET_SIZES
 from ..database import get_db
-from ..services import calculations
+from ..services import calculations, cloning
 from ..services.rate_config import get_rate_config
 from ..templates import get_template
 
@@ -21,8 +21,14 @@ def get_project_or_404(project_id: int, db: Session) -> models.Project:
 
 
 @router.get("", response_model=list[schemas.ProjectSummary])
-def list_projects(db: Session = Depends(get_db)):
-    return db.query(models.Project).order_by(models.Project.updated_at.desc()).all()
+def list_projects(status: str | None = None, include_scenarios: bool = False,
+                  db: Session = Depends(get_db)):
+    query = db.query(models.Project)
+    if not include_scenarios:
+        query = query.filter(models.Project.base_project_id.is_(None))
+    if status is not None:
+        query = query.filter(models.Project.status == status)
+    return query.order_by(models.Project.updated_at.desc()).all()
 
 
 @router.post("", response_model=schemas.ProjectOut, status_code=201)
@@ -81,6 +87,54 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
     db.commit()
 
 
+@router.post("/{project_id}/clone", response_model=schemas.ProjectOut, status_code=201)
+def clone_project_endpoint(project_id: int, data: schemas.CloneRequest,
+                           db: Session = Depends(get_db)):
+    """Duplicate a project. as_scenario=true links the copy to the base
+    project (scenarios of a scenario attach to the same base)."""
+    source = get_project_or_404(project_id, db)
+    base_id = None
+    if data.as_scenario:
+        base_id = source.base_project_id or source.id
+    clone = cloning.clone_project(db, source, data.name, base_id)
+    db.commit()
+    db.refresh(clone)
+    return clone
+
+
+@router.get("/{project_id}/scenarios", response_model=list[schemas.ProjectSummary])
+def list_scenarios(project_id: int, db: Session = Depends(get_db)):
+    """The scenario family of a project: the base first, then scenarios."""
+    project = get_project_or_404(project_id, db)
+    base_id = project.base_project_id or project.id
+    base = db.get(models.Project, base_id)
+    scenarios = (
+        db.query(models.Project)
+        .filter(models.Project.base_project_id == base_id)
+        .order_by(models.Project.id)
+        .all()
+    )
+    return ([base] if base else []) + scenarios
+
+
+@router.post("/{project_id}/promote", response_model=schemas.ProjectSummary)
+def promote_scenario(project_id: int, db: Session = Depends(get_db)):
+    """Mark a scenario as the winning one (exclusive among its family)."""
+    project = get_project_or_404(project_id, db)
+    base_id = project.base_project_id or project.id
+    family = (
+        db.query(models.Project)
+        .filter((models.Project.id == base_id) |
+                (models.Project.base_project_id == base_id))
+        .all()
+    )
+    for p in family:
+        p.is_winning_scenario = (p.id == project.id)
+    db.commit()
+    db.refresh(project)
+    return project
+
+
 @router.get("/{project_id}/validate", response_model=schemas.ValidationResult)
 def validate_project(project_id: int, db: Session = Depends(get_db)):
     project = get_project_or_404(project_id, db)
@@ -94,12 +148,19 @@ def validate_project(project_id: int, db: Session = Depends(get_db)):
 
 @router.get("/{project_id}/export")
 def export_project(project_id: int, db: Session = Depends(get_db)):
-    """Export a project in the desktop app's JSON format."""
+    """Export a project's non-monetary data in the desktop app's JSON format.
+
+    Money values are end-to-end encrypted; the browser merges the decrypted
+    money into this structure before offering the download.
+    """
     project = get_project_or_404(project_id, db)
     rates = get_rate_config(project)
     return {
         "project_name": project.name,
         "company_name": project.company,
+        "status": project.status,
+        "win_probability_pct": project.win_probability_pct,
+        "lost_reason": project.lost_reason,
         "dates": [
             str(project.start_year), str(project.start_month),
             str(project.end_year), str(project.end_month),
@@ -129,13 +190,9 @@ def export_project(project_id: int, db: Session = Depends(get_db)):
             for feature in project.features
         ],
         "rate_config": {
-            "hourly_rates": rates["hourly_rates"],
-            "cost_rates": rates["cost_rates"],
             "sp_to_hours": rates["sp_to_hours"],
-            "hw_cost_per_hour": rates["hw_cost_per_hour"],
             "risk_factor_pct": rates["risk_factor_pct"],
             "ticket_sp": rates["ticket_story_points"],
-            "ticket_price": rates["ticket_prices"],
             "ticket_quota": {str(y): q for y, q in rates["ticket_quotas"].items()},
         },
     }
@@ -151,11 +208,17 @@ def import_project(data: dict, db: Session = Depends(get_db)):
     except (IndexError, ValueError, TypeError):
         raise HTTPException(status_code=422, detail="Invalid or missing 'dates' array")
 
+    status = data.get("status", "draft")
+    if status not in PROJECT_STATUSES:
+        status = "draft"
     project = models.Project(
         name=data.get("project_name", "Project"),
         company=data.get("company_name", "Company"),
         start_year=start_year, start_month=start_month,
         end_year=end_year, end_month=end_month,
+        status=status,
+        win_probability_pct=float(data.get("win_probability_pct", 50.0)),
+        lost_reason=data.get("lost_reason"),
     )
     db.add(project)
     db.flush()
@@ -184,23 +247,17 @@ def import_project(data: dict, db: Session = Depends(get_db)):
                     ftes=float(alloc.get("ftes", 0.0)),
                 ))
 
+    # Monetary values in the file (hourly_rates, cost_rates, ticket_price,
+    # hw_cost_per_hour) are NOT stored in plaintext — the browser encrypts
+    # them into the project's money blob after this import returns.
     rc = data.get("rate_config", {})
     project.sp_to_hours = float(rc.get("sp_to_hours", 4.0))
-    project.hw_cost_per_hour = float(rc.get("hw_cost_per_hour", 0.0))
     project.risk_factor_pct = float(rc.get("risk_factor_pct", 0.0))
-
-    for loc in LOCATIONS:
-        rate = float(rc.get("hourly_rates", {}).get(loc, 0.0))
-        db.add(models.HourlyRate(project_id=project.id, location=loc, rate=rate))
-        for lvl in LEVELS:
-            cost = float(rc.get("cost_rates", {}).get(loc, {}).get(lvl, 0.0))
-            db.add(models.CostRate(project_id=project.id, location=loc, level=lvl, rate=cost))
 
     for size in TICKET_SIZES:
         db.add(models.TicketConfig(
             project_id=project.id, size=size,
             story_points=float(rc.get("ticket_sp", {}).get(size, 0.0)),
-            price=float(rc.get("ticket_price", {}).get(size, 0.0)),
         ))
 
     for year_str, quotas in rc.get("ticket_quota", {}).items():

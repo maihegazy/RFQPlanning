@@ -1,26 +1,22 @@
-"""Helpers to read/write a project's rate configuration."""
+"""Helpers to read/write a project's non-monetary rate configuration.
+
+Monetary values (hourly sell rates, cost rates, hardware cost per hour,
+ticket prices) are end-to-end encrypted and never handled in plaintext by
+the server — see routers/vault.py. Only effort-related configuration lives
+here: SP conversion, risk factor, ticket story points and quotas.
+"""
 
 from sqlalchemy.orm import Session
 
 from .. import models
-from ..config import LEVELS, LOCATIONS, TICKET_SIZES
+from ..config import TICKET_SIZES
 
 
 def get_rate_config(project: models.Project) -> dict:
-    """Assemble a project's full rate configuration as a plain dict."""
-    hourly_rates = {loc: 0.0 for loc in LOCATIONS}
-    for hr in project.hourly_rates:
-        hourly_rates[hr.location] = hr.rate
-
-    cost_rates = {loc: {lvl: 0.0 for lvl in LEVELS} for loc in LOCATIONS}
-    for cr in project.cost_rates:
-        cost_rates.setdefault(cr.location, {})[cr.level] = cr.rate
-
+    """Assemble a project's non-monetary configuration as a plain dict."""
     ticket_story_points = {size: 0.0 for size in TICKET_SIZES}
-    ticket_prices = {size: 0.0 for size in TICKET_SIZES}
     for tc in project.ticket_configs:
         ticket_story_points[tc.size] = tc.story_points
-        ticket_prices[tc.size] = tc.price
 
     ticket_quotas: dict[int, dict[str, float]] = {}
     for tq in project.ticket_quotas:
@@ -28,61 +24,28 @@ def get_rate_config(project: models.Project) -> dict:
         ticket_quotas[tq.year][tq.size] = tq.quota_pct
 
     return {
-        "hourly_rates": hourly_rates,
-        "cost_rates": cost_rates,
         "sp_to_hours": project.sp_to_hours,
-        "hw_cost_per_hour": project.hw_cost_per_hour,
         "risk_factor_pct": project.risk_factor_pct,
         "ticket_story_points": ticket_story_points,
-        "ticket_prices": ticket_prices,
         "ticket_quotas": ticket_quotas,
     }
 
 
 def update_rate_config(db: Session, project: models.Project, data) -> None:
-    """Apply a partial rate-configuration update to a project."""
+    """Apply a partial non-monetary configuration update to a project."""
     if data.sp_to_hours is not None:
         project.sp_to_hours = data.sp_to_hours
-    if data.hw_cost_per_hour is not None:
-        project.hw_cost_per_hour = data.hw_cost_per_hour
     if data.risk_factor_pct is not None:
         project.risk_factor_pct = data.risk_factor_pct
 
-    if data.hourly_rates is not None:
-        existing = {hr.location: hr for hr in project.hourly_rates}
-        for loc, rate in data.hourly_rates.items():
-            if loc in existing:
-                existing[loc].rate = rate
-            else:
-                db.add(models.HourlyRate(project_id=project.id, location=loc, rate=rate))
-
-    if data.cost_rates is not None:
-        existing = {(cr.location, cr.level): cr for cr in project.cost_rates}
-        for loc, levels in data.cost_rates.items():
-            for lvl, rate in levels.items():
-                if (loc, lvl) in existing:
-                    existing[(loc, lvl)].rate = rate
-                else:
-                    db.add(models.CostRate(
-                        project_id=project.id, location=loc, level=lvl, rate=rate
-                    ))
-
-    if data.ticket_story_points is not None or data.ticket_prices is not None:
+    if data.ticket_story_points is not None:
         existing = {tc.size: tc for tc in project.ticket_configs}
-        sizes = set()
-        if data.ticket_story_points:
-            sizes.update(data.ticket_story_points)
-        if data.ticket_prices:
-            sizes.update(data.ticket_prices)
-        for size in sizes:
+        for size, sp in data.ticket_story_points.items():
             tc = existing.get(size)
             if tc is None:
                 tc = models.TicketConfig(project_id=project.id, size=size)
                 db.add(tc)
-            if data.ticket_story_points is not None and size in data.ticket_story_points:
-                tc.story_points = data.ticket_story_points[size]
-            if data.ticket_prices is not None and size in data.ticket_prices:
-                tc.price = data.ticket_prices[size]
+            tc.story_points = sp
 
     if data.ticket_quotas is not None:
         # Replace quotas wholesale: the payload is the full quota table
@@ -94,3 +57,33 @@ def update_rate_config(db: Session, project: models.Project, data) -> None:
                 db.add(models.TicketQuota(
                     project_id=project.id, year=year, size=size, quota_pct=pct
                 ))
+
+
+def get_legacy_plaintext_money(project: models.Project) -> dict:
+    """Read money values from the legacy plaintext tables (pre-encryption).
+
+    Used once per project to migrate into the encrypted blob; afterwards
+    the plaintext is purged.
+    """
+    hourly_rates = {hr.location: hr.rate for hr in project.hourly_rates}
+    cost_rates: dict[str, dict[str, float]] = {}
+    for cr in project.cost_rates:
+        cost_rates.setdefault(cr.location, {})[cr.level] = cr.rate
+    ticket_prices = {tc.size: tc.price for tc in project.ticket_configs}
+    return {
+        "hourly_rates": hourly_rates,
+        "cost_rates": cost_rates,
+        "hw_cost_per_hour": project.hw_cost_per_hour,
+        "ticket_prices": ticket_prices,
+    }
+
+
+def purge_legacy_plaintext_money(db: Session, project: models.Project) -> None:
+    """Remove all plaintext money values for a project after migration."""
+    for hr in list(project.hourly_rates):
+        db.delete(hr)
+    for cr in list(project.cost_rates):
+        db.delete(cr)
+    for tc in project.ticket_configs:
+        tc.price = 0.0
+    project.hw_cost_per_hour = 0.0

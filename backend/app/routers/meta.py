@@ -3,7 +3,13 @@
 from fastapi import APIRouter
 
 from .. import schemas
-from ..config import HOURS_PER_FTE_PER_MONTH, LEVELS, LOCATIONS, TICKET_SIZES
+from ..config import (
+    HOURS_PER_FTE_PER_MONTH,
+    LEVELS,
+    LOCATIONS,
+    PROJECT_STATUSES,
+    TICKET_SIZES,
+)
 from ..templates import TEMPLATES
 
 router = APIRouter(prefix="/api", tags=["meta"])
@@ -37,6 +43,7 @@ def get_meta():
         "locations": LOCATIONS,
         "levels": LEVELS,
         "ticket_sizes": TICKET_SIZES,
+        "project_statuses": PROJECT_STATUSES,
         "hours_per_fte_per_month": HOURS_PER_FTE_PER_MONTH,
     }
 

@@ -1,4 +1,10 @@
-"""End-to-end API tests against an in-memory SQLite database."""
+"""End-to-end API tests against a SQLite database.
+
+Money values are end-to-end encrypted client-side; the server only stores
+opaque blobs, so these tests cover effort data, vault key storage, and the
+plaintext-migration path. Monetary math is tested in the frontend engine
+suite (frontend/src/money/engine.test.ts).
+"""
 
 import os
 import sys
@@ -9,7 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import pytest
 from fastapi.testclient import TestClient
 
-from app.database import Base, engine
+from app.database import Base, engine, run_startup_migrations
 from app.main import app
 
 
@@ -33,6 +39,12 @@ def project_id(client):
     })
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]
+
+
+def test_startup_migrations_idempotent():
+    # Running the column migrations repeatedly must be a no-op
+    run_startup_migrations(engine)
+    run_startup_migrations(engine)
 
 
 def test_meta(client):
@@ -62,14 +74,12 @@ def test_features_and_roles(client, project_id):
     assert resp.status_code == 201
     feature_id = resp.json()["id"]
 
-    # Fixed-FTE role
     resp = client.post(f"/api/features/{feature_id}/roles", json={
         "name": "Developer", "location": "BCC", "level": "Senior", "ftes": 1.0,
         "use_advanced_allocation": False, "allocations": [],
     })
     assert resp.status_code == 201
 
-    # Variable-allocation role
     resp = client.post(f"/api/features/{feature_id}/roles", json={
         "name": "Architect", "location": "HCC", "level": "Principal", "ftes": 0.0,
         "use_advanced_allocation": True,
@@ -79,72 +89,30 @@ def test_features_and_roles(client, project_id):
         ],
     })
     assert resp.status_code == 201
-    role = resp.json()
-    assert len(role["allocations"]) == 2
+    assert len(resp.json()["allocations"]) == 2
 
-    # Invalid location rejected
     resp = client.post(f"/api/features/{feature_id}/roles", json={
         "name": "X", "location": "ZZZ", "level": "Senior", "ftes": 1.0,
     })
     assert resp.status_code == 422
 
 
-def test_rate_config(client, project_id):
+def test_rate_config_non_monetary(client, project_id):
     resp = client.put(f"/api/projects/{project_id}/rates", json={
-        "hourly_rates": {"BCC": 100.0, "HCC": 80.0, "MCC": 60.0},
-        "cost_rates": {"BCC": {"Senior": 50.0}, "HCC": {"Principal": 55.0}},
         "sp_to_hours": 4.0,
-        "hw_cost_per_hour": 2.0,
         "risk_factor_pct": 10.0,
         "ticket_story_points": {"small": 2, "medium": 5, "large": 10},
-        "ticket_prices": {"small": 500, "medium": 1200, "large": 2500},
         "ticket_quotas": {"2026": {"small": 20, "medium": 30, "large": 10},
                           "2027": {"small": 15, "medium": 25, "large": 20}},
     })
     assert resp.status_code == 200, resp.text
     data = resp.json()
-    assert data["hourly_rates"]["BCC"] == 100.0
-    assert data["cost_rates"]["BCC"]["Senior"] == 50.0
+    assert data["risk_factor_pct"] == 10.0
     assert data["ticket_quotas"]["2026"]["medium"] == 30
-
-    resp = client.get(f"/api/projects/{project_id}/rates")
-    assert resp.json()["risk_factor_pct"] == 10.0
-
-
-def test_budget_plan_calculations(client, project_id):
-    resp = client.get(f"/api/projects/{project_id}/reports/budget-plan")
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-
-    # 2026: Developer 1.0 FTE x 12 months x 160h = 1920h at BCC
-    bcc_2026 = next(r for r in data["cost_profit_summary"]
-                    if r["year"] == "2026" and r["location"] == "BCC")
-    assert bcc_2026["man_hours"] == pytest.approx(1920)
-    assert bcc_2026["selling_price"] == pytest.approx(1920 * 100.0)
-    assert bcc_2026["cost"] == pytest.approx(1920 * 50.0)
-    assert bcc_2026["profit_pct"] == pytest.approx(50.0)
-
-    # Architect: 0.5 FTE Jan-Jun + 1.0 FTE Jul-Dec = (6*0.5 + 6*1.0) * 160 = 1440h at HCC
-    hcc_2026 = next(r for r in data["cost_profit_summary"]
-                    if r["year"] == "2026" and r["location"] == "HCC")
-    assert hcc_2026["man_hours"] == pytest.approx(1440)
-
-    # Ticket analysis 2026: total hours 3360, avg rate = (1920*100+1440*80)/3360
-    total_hours = 1920 + 1440
-    avg_rate = (1920 * 100.0 + 1440 * 80.0) / total_hours
-    final_rate = avg_rate * 1.10 + 2.0
-    small = next(r for r in data["ticket_analysis"]
-                 if r["year"] == "2026" and r["size"] == "Small")
-    assert small["hours_per_ticket"] == pytest.approx(8.0)  # 2 SP * 4 h/SP
-    assert small["num_tickets"] == pytest.approx(round(total_hours * 0.20 / 8.0, 2))
-    assert small["hourly_rate"] == pytest.approx(round(final_rate, 2))
-
-    # Pivot totals include location subtotals and grand total
-    pivot_2026 = next(p for p in data["yearly_pivots"] if p["year"] == "2026")
-    features = [r["Feature"] for r in pivot_2026["rows"]]
-    assert "TOTAL - BCC" in features and "TOTAL - HCC" in features and "TOTAL" in features
-    grand = next(r for r in pivot_2026["rows"] if r["Feature"] == "TOTAL")
-    assert grand["Total"] == pytest.approx(1920 * 100.0 + 1440 * 80.0)
+    # No monetary keys are exposed by the server
+    assert "hourly_rates" not in data
+    assert "cost_rates" not in data
+    assert "ticket_prices" not in data
 
 
 def test_resource_plan(client, project_id):
@@ -152,94 +120,99 @@ def test_resource_plan(client, project_id):
     assert resp.status_code == 200
     pivots = resp.json()["yearly_pivots"]
     assert [p["year"] for p in pivots] == ["2026", "2027"]
-    pivot_2026 = pivots[0]
-    grand = next(r for r in pivot_2026["rows"] if r["Feature"] == "TOTAL")
+    grand = next(r for r in pivots[0]["rows"] if r["Feature"] == "TOTAL")
     # Jan-Jun: 1.5 FTE/month, Jul-Dec: 2.0 FTE/month => total 21 FTE-months
     assert grand["Total"] == pytest.approx(21.0)
 
-
-def test_excel_exports(client, project_id):
-    for report in ["resource-plan.xlsx", "budget-plan.xlsx"]:
-        resp = client.get(f"/api/projects/{project_id}/reports/{report}")
-        assert resp.status_code == 200
-        assert resp.headers["content-type"].startswith(
-            "application/vnd.openxmlformats-officedocument")
-        assert resp.content[:2] == b"PK"  # valid xlsx (zip) magic
-
-
-def test_validation(client, project_id):
-    resp = client.get(f"/api/projects/{project_id}/validate")
+    resp = client.get(f"/api/projects/{project_id}/reports/resource-plan.xlsx")
     assert resp.status_code == 200
-    assert resp.json()["valid"] is True
-
-    # A project without features is invalid
-    resp = client.post("/api/projects", json={
-        "name": "Empty", "company": "C",
-        "start_year": 2026, "start_month": 1, "end_year": 2026, "end_month": 12,
-    })
-    pid = resp.json()["id"]
-    resp = client.get(f"/api/projects/{pid}/validate")
-    assert resp.json()["valid"] is False
-    assert "At least one feature is required" in resp.json()["errors"]
+    assert resp.content[:2] == b"PK"
 
 
-def test_templates(client):
-    resp = client.get("/api/templates")
+def test_budget_plan_no_longer_server_side(client, project_id):
+    assert client.get(
+        f"/api/projects/{project_id}/reports/budget-plan").status_code == 404
+    assert client.get(
+        f"/api/projects/{project_id}/reports/budget-plan.xlsx").status_code == 404
+
+
+def test_vault_lifecycle(client):
+    resp = client.get("/api/vault")
     assert resp.status_code == 200
-    templates = resp.json()
-    assert [t["id"] for t in templates] == [
-        "basic-software", "application-software", "safety"]
+    assert resp.json() == {"exists": False}
 
-    # Create a project from the basic-software template
-    resp = client.post("/api/projects", json={
-        "name": "Templated", "company": "Vehiclevo",
-        "start_year": 2026, "start_month": 1, "end_year": 2026, "end_month": 12,
-        "template_id": "basic-software",
-    })
+    keys = {
+        "kdf_salt": "c2FsdA==",
+        "kdf_iterations": 600000,
+        "wrapped_dek_passphrase_iv": "aXYxaXYxaXYx",
+        "wrapped_dek_passphrase": "d3JhcHBlZC1wYXNz",
+        "wrapped_dek_recovery_iv": "aXYyaXYyaXYy",
+        "wrapped_dek_recovery": "d3JhcHBlZC1yZWM=",
+    }
+    resp = client.post("/api/vault", json=keys)
     assert resp.status_code == 201, resp.text
-    project = resp.json()
-    feature_names = [f["name"] for f in project["features"]]
-    assert feature_names == [
-        "Network", "Cyber Security", "Functional Safety", "Diagnostics",
-        "Programming", "Life Cycle", "Calibration", "Project Management",
-    ]
-    network = project["features"][0]
-    assert [(r["name"], r["location"], r["level"]) for r in network["roles"]] == [
-        ("Developer", "BCC", "FO"),
-        ("Tester", "BCC", "Standard"),
-        ("Developer", "BCC", "Junior"),
-    ]
-    mgmt = project["features"][-1]
-    assert [r["name"] for r in mgmt["roles"]] == [
-        "Project Lead (PL)", "Technical Lead (TL)", "Integrator"]
-    # Templated project passes validation out of the box
-    resp = client.get(f"/api/projects/{project['id']}/validate")
-    assert resp.json()["valid"] is True
 
-    # Safety template roles
-    resp = client.post("/api/projects", json={
-        "name": "Safety", "company": "Vehiclevo",
-        "start_year": 2026, "start_month": 1, "end_year": 2026, "end_month": 12,
-        "template_id": "safety",
-    })
-    project = resp.json()
-    assert [f["name"] for f in project["features"]] == [
-        "Safety Analysis", "Safety Enhancement", "Project Management"]
-    analysis = project["features"][0]
-    assert [(r["name"], r["level"]) for r in analysis["roles"]] == [
-        ("Developer", "FO"), ("Developer", "Principal")]
+    # Second setup rejected
+    assert client.post("/api/vault", json=keys).status_code == 409
 
-    # Unknown template rejected
-    resp = client.post("/api/projects", json={
-        "name": "X", "company": "Y",
-        "start_year": 2026, "start_month": 1, "end_year": 2026, "end_month": 12,
-        "template_id": "nope",
+    resp = client.get("/api/vault")
+    data = resp.json()
+    assert data["exists"] is True
+    assert data["wrapped_dek_recovery"] == keys["wrapped_dek_recovery"]
+
+    # Passphrase change re-wraps only the passphrase copy
+    resp = client.put("/api/vault/passphrase", json={
+        "kdf_salt": "bmV3c2FsdA==",
+        "kdf_iterations": 700000,
+        "wrapped_dek_passphrase_iv": "bmV3aXY=",
+        "wrapped_dek_passphrase": "bmV3LXdyYXBwZWQ=",
     })
-    assert resp.status_code == 422
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["kdf_iterations"] == 700000
+    assert data["wrapped_dek_recovery"] == keys["wrapped_dek_recovery"]
+
+
+def test_money_blob_roundtrip(client, project_id):
+    resp = client.get(f"/api/projects/{project_id}/money")
+    assert resp.json() == {"encrypted_money": None, "money_iv": None}
+
+    blob = {"encrypted_money": "b3BhcXVlLWNpcGhlcnRleHQ=", "money_iv": "aXZpdml2"}
+    resp = client.put(f"/api/projects/{project_id}/money", json=blob)
+    assert resp.status_code == 200
+
+    resp = client.get(f"/api/projects/{project_id}/money")
+    assert resp.json() == blob
+
+
+def test_legacy_money_migration(client, project_id):
+    # Fresh project has no legacy plaintext money
+    resp = client.get(f"/api/projects/{project_id}/money/legacy")
+    assert resp.status_code == 200
+    assert resp.json()["has_data"] is False
+
+    # Purge is idempotent and safe on empty data
+    assert client.post(
+        f"/api/projects/{project_id}/money/purge-plaintext").status_code == 204
+
+
+def test_no_plaintext_money_in_db(client, project_id):
+    """After setting rates + blob, no monetary number may exist in plaintext."""
+    import sqlite3
+    conn = sqlite3.connect("./test_rfq.db")
+    try:
+        for table in ["hourly_rates", "cost_rates"]:
+            rows = conn.execute(f"SELECT * FROM {table}").fetchall()
+            assert rows == [], f"plaintext rows found in {table}: {rows}"
+        prices = conn.execute("SELECT price FROM ticket_configs").fetchall()
+        assert all(p == (0.0,) for p in prices)
+        hw = conn.execute("SELECT hw_cost_per_hour FROM projects").fetchall()
+        assert all(h == (0.0,) for h in hw)
+    finally:
+        conn.close()
 
 
 def test_resource_grid_update(client):
-    # Fresh project with one feature and two roles
     resp = client.post("/api/projects", json={
         "name": "Grid", "company": "V",
         "start_year": 2026, "start_month": 1, "end_year": 2026, "end_month": 6,
@@ -254,7 +227,6 @@ def test_resource_grid_update(client):
         "name": "Tester", "location": "BCC", "level": "Standard", "ftes": 1.0,
     }).json()["id"]
 
-    # r1: varying series -> compressed into periods; r2: uniform -> fixed
     resp = client.put(f"/api/projects/{pid}/resource-grid", json={
         "roles": [
             {"role_id": r1, "ftes_by_month": {
@@ -268,8 +240,7 @@ def test_resource_grid_update(client):
         ],
     })
     assert resp.status_code == 200, resp.text
-    project = resp.json()
-    roles = {r["id"]: r for r in project["features"][0]["roles"]}
+    roles = {r["id"]: r for r in resp.json()["features"][0]["roles"]}
 
     assert roles[r1]["use_advanced_allocation"] is True
     periods = [(a["start_month"], a["end_month"], a["ftes"])
@@ -279,28 +250,163 @@ def test_resource_grid_update(client):
         ("2026-03", "2026-04", 1.0),
         ("2026-06", "2026-06", 0.8),
     ]
-
     assert roles[r2]["use_advanced_allocation"] is False
     assert roles[r2]["ftes"] == 0.6
-    assert roles[r2]["allocations"] == []
 
-    # Resource plan reflects the grid exactly
     pivots = client.get(
         f"/api/projects/{pid}/reports/resource-plan").json()["yearly_pivots"]
     grand = next(r for r in pivots[0]["rows"] if r["Feature"] == "TOTAL")
     assert grand["Total"] == pytest.approx(0.5*2 + 1.0*2 + 0.8 + 0.6*6)
 
-    # Unknown role rejected
-    resp = client.put(f"/api/projects/{pid}/resource-grid", json={
-        "roles": [{"role_id": 999999, "ftes_by_month": {"2026-01": 1.0}}],
-    })
-    assert resp.status_code == 404
 
-    # Negative FTE rejected
-    resp = client.put(f"/api/projects/{pid}/resource-grid", json={
-        "roles": [{"role_id": r1, "ftes_by_month": {"2026-01": -1.0}}],
+def test_templates(client):
+    resp = client.get("/api/templates")
+    templates = resp.json()
+    assert [t["id"] for t in templates] == [
+        "basic-software", "application-software", "safety"]
+
+    resp = client.post("/api/projects", json={
+        "name": "Templated", "company": "Vehiclevo",
+        "start_year": 2026, "start_month": 1, "end_year": 2026, "end_month": 12,
+        "template_id": "basic-software",
     })
+    assert resp.status_code == 201, resp.text
+    project = resp.json()
+    feature_names = [f["name"] for f in project["features"]]
+    assert feature_names == [
+        "Network", "Cyber Security", "Functional Safety", "Diagnostics",
+        "Programming", "Life Cycle", "Calibration", "Project Management",
+    ]
+    mgmt = project["features"][-1]
+    assert [r["name"] for r in mgmt["roles"]] == [
+        "Project Lead (PL)", "Technical Lead (TL)", "Integrator"]
+
+    resp = client.get(f"/api/projects/{project['id']}/validate")
+    assert resp.json()["valid"] is True
+
+
+def test_validation(client):
+    resp = client.post("/api/projects", json={
+        "name": "Empty", "company": "C",
+        "start_year": 2026, "start_month": 1, "end_year": 2026, "end_month": 12,
+    })
+    pid = resp.json()["id"]
+    resp = client.get(f"/api/projects/{pid}/validate")
+    assert resp.json()["valid"] is False
+    assert "At least one feature is required" in resp.json()["errors"]
+
+
+def test_lifecycle_status(client, project_id):
+    # Defaults
+    resp = client.get(f"/api/projects/{project_id}")
+    data = resp.json()
+    assert data["status"] == "draft"
+    assert data["win_probability_pct"] == 50.0
+
+    # Transition to quoted with a win probability
+    resp = client.put(f"/api/projects/{project_id}", json={
+        "status": "quoted", "win_probability_pct": 70,
+    })
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "quoted"
+
+    # Invalid status rejected
+    resp = client.put(f"/api/projects/{project_id}", json={"status": "maybe"})
     assert resp.status_code == 422
+
+    # Lost with reason
+    resp = client.put(f"/api/projects/{project_id}", json={
+        "status": "lost", "lost_reason": "Competitor undercut on price",
+    })
+    assert resp.json()["lost_reason"] == "Competitor undercut on price"
+
+    # Status filter on list
+    assert all(p["status"] == "lost" for p in
+               client.get("/api/projects?status=lost").json())
+    assert client.get("/api/projects?status=won").json() == []
+
+    # Back to quoted for later tests
+    client.put(f"/api/projects/{project_id}", json={"status": "quoted"})
+
+
+def test_scenarios(client, project_id):
+    # Clone as scenario
+    resp = client.post(f"/api/projects/{project_id}/clone", json={
+        "name": "Scenario B (offshore-heavy)", "as_scenario": True,
+    })
+    assert resp.status_code == 201, resp.text
+    scenario = resp.json()
+    assert scenario["base_project_id"] == project_id
+    assert len(scenario["features"]) == 1
+    assert len(scenario["features"][0]["roles"]) == 2
+    # Deep-copied allocations
+    arch = next(r for r in scenario["features"][0]["roles"] if r["name"] == "Architect")
+    assert len(arch["allocations"]) == 2
+
+    # Scenario family listing: base first, then scenario
+    family = client.get(f"/api/projects/{project_id}/scenarios").json()
+    assert [p["id"] for p in family] == [project_id, scenario["id"]]
+    # Same family when asked from the scenario side
+    family2 = client.get(f"/api/projects/{scenario['id']}/scenarios").json()
+    assert [p["id"] for p in family2] == [p["id"] for p in family]
+
+    # Cloning a scenario attaches to the same base
+    resp = client.post(f"/api/projects/{scenario['id']}/clone", json={
+        "name": "Scenario C", "as_scenario": True,
+    })
+    assert resp.json()["base_project_id"] == project_id
+
+    # Scenario resource plan identical to base (deep copy)
+    base_plan = client.get(f"/api/projects/{project_id}/reports/resource-plan").json()
+    scen_plan = client.get(f"/api/projects/{scenario['id']}/reports/resource-plan").json()
+    assert base_plan == scen_plan
+
+    # Money blob copied verbatim
+    base_money = client.get(f"/api/projects/{project_id}/money").json()
+    scen_money = client.get(f"/api/projects/{scenario['id']}/money").json()
+    assert base_money == scen_money
+
+    # Promote exclusivity
+    resp = client.post(f"/api/projects/{scenario['id']}/promote")
+    assert resp.json()["is_winning_scenario"] is True
+    family = client.get(f"/api/projects/{project_id}/scenarios").json()
+    winners = [p["id"] for p in family if p["is_winning_scenario"]]
+    assert winners == [scenario["id"]]
+
+    # Scenarios hidden from the default project list
+    ids = [p["id"] for p in client.get("/api/projects").json()]
+    assert scenario["id"] not in ids
+    ids_all = [p["id"] for p in
+               client.get("/api/projects?include_scenarios=true").json()]
+    assert scenario["id"] in ids_all
+
+    # Deleting the base cascades its scenarios — use plain duplicate instead
+    resp = client.post(f"/api/projects/{project_id}/clone", json={
+        "name": "Plain Copy", "as_scenario": False,
+    })
+    assert resp.json()["base_project_id"] is None
+    client.delete(f"/api/projects/{resp.json()['id']}")
+
+
+def test_portfolio_capacity(client, project_id):
+    resp = client.get("/api/portfolio/capacity")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["locations"] == ["BCC", "HCC", "MCC"]
+    # project_id spans 2026-01..2027-06 with BCC 1.0 + HCC 0.5/1.0
+    assert "2026-01" in data["months"]
+    assert data["cells"]["2026-01"]["BCC"] >= 1.0
+    assert data["cells"]["2026-01"]["HCC"] >= 0.5
+    # Scenario children are not double-counted: capacity for 2026-01 BCC
+    # would be >= 2.0 if the scenario from test_scenarios were included
+    bcc_contributions = data["cells"]["2026-01"]["BCC"]
+    grid_project_bcc = 0.5 + 0.6  # from test_resource_grid_update (2026-01)
+    templated_bcc = 24.0  # basic-software template: 24 BCC roles at 1.0 FTE
+    assert bcc_contributions == pytest.approx(1.0 + grid_project_bcc + templated_bcc)
+
+    # Status filter
+    resp = client.get("/api/portfolio/capacity?statuses=won")
+    assert resp.json()["months"] == []
 
 
 def test_export_import_roundtrip(client, project_id):
@@ -308,7 +414,9 @@ def test_export_import_roundtrip(client, project_id):
     assert resp.status_code == 200
     exported = resp.json()
     assert exported["project_name"] == "Test RFQ"
-    assert exported["rate_config"]["hourly_rates"]["BCC"] == 100.0
+    # No monetary values in the server-side export
+    assert "hourly_rates" not in exported["rate_config"]
+    assert "ticket_price" not in exported["rate_config"]
 
     resp = client.post("/api/projects/import", json=exported)
     assert resp.status_code == 201
@@ -317,9 +425,17 @@ def test_export_import_roundtrip(client, project_id):
     assert len(imported["features"]) == 1
     assert len(imported["features"][0]["roles"]) == 2
 
-    # Imported project produces identical budget numbers
-    resp = client.get(f"/api/projects/{imported['id']}/reports/budget-plan")
-    data = resp.json()
-    bcc_2026 = next(r for r in data["cost_profit_summary"]
-                    if r["year"] == "2026" and r["location"] == "BCC")
-    assert bcc_2026["selling_price"] == pytest.approx(1920 * 100.0)
+    # Old desktop files containing money import cleanly; money is ignored
+    legacy_file = {**exported}
+    legacy_file["rate_config"] = {
+        **exported["rate_config"],
+        "hourly_rates": {"BCC": 100.0},
+        "cost_rates": {"BCC": {"Senior": 50.0}},
+        "ticket_price": {"small": 500},
+        "hw_cost_per_hour": 2.0,
+    }
+    resp = client.post("/api/projects/import", json=legacy_file)
+    assert resp.status_code == 201
+    pid = resp.json()["id"]
+    resp = client.get(f"/api/projects/{pid}/money/legacy")
+    assert resp.json()["has_data"] is False

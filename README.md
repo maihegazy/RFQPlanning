@@ -15,6 +15,28 @@ formatted Excel reports — as a web application built on:
 
 No authentication/authorization — designed to run behind an existing system.
 
+## End-to-end encrypted money data
+
+All monetary values (hourly sell rates, cost rates per location/level, hardware
+cost per hour, ticket prices) are **end-to-end encrypted in the browser**:
+
+- On first use you create a **money vault** with a passphrase; a one-time
+  **recovery key file** (`rfq-recovery-key.json`) is downloaded as backup.
+- Keys: passphrase → PBKDF2-SHA256 (600k iterations) → wraps a random AES-256-GCM
+  data key. The server stores only KDF salt + wrapped keys + ciphertext blobs.
+  The passphrase, recovery key and data key **never leave the browser**.
+- Nobody with database or backend access can read money data — DB dumps and
+  backups contain only ciphertext. Losing both passphrase and recovery file
+  makes money data unrecoverable **by design** (effort data is unaffected).
+- Consequently all money math (cost-profit, ticket revenue, budget pivots) runs
+  client-side (`frontend/src/money/engine.ts`, golden-master-tested against the
+  original implementation), and the budget Excel workbook is generated in the
+  browser. Effort data (features, roles, FTEs) stays server-side, so resource
+  planning works without unlocking.
+- Threat-model note: the server still delivers the app's JavaScript, so a
+  *malicious* server operator could ship tampered code. The design protects
+  against passive access — DB dumps, backups, curious admins.
+
 ## Quick start (Docker)
 
 ```bash

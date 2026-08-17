@@ -2,23 +2,31 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import type { ProjectSummary, ProjectTemplate } from '../types'
-import { Button, Card, ErrorBanner, EmptyState, Input, Label, Modal, Select, Spinner } from '../components/ui'
+import { Button, Card, ErrorBanner, EmptyState, Input, Label, Modal, Select, Spinner, StatusBadge } from '../components/ui'
 import { MONTH_NAMES } from '../utils'
+import { downloadBlob } from '../download'
+import { useVault } from '../vault/VaultContext'
+import { VaultStatusButton } from '../vault/VaultGate'
+import { emptyMoneyConfig, type MoneyConfig } from '../money/types'
 
 export default function ProjectsPage() {
+  const vault = useVault()
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const [showCreate, setShowCreate] = useState(false)
+  const [statusFilter, setStatusFilter] = useState<string>('')
   const fileInput = useRef<HTMLInputElement>(null)
 
   const load = () => {
     api
-      .listProjects()
+      .listProjects(statusFilter ? { status: statusFilter } : undefined)
       .then(setProjects)
       .catch((e) => setError(e.message))
   }
 
-  useEffect(load, [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(load, [statusFilter])
 
   const handleDelete = async (project: ProjectSummary) => {
     if (!window.confirm(`Delete project "${project.name}"? This cannot be undone.`)) return
@@ -31,12 +39,79 @@ export default function ProjectsPage() {
   }
 
   const handleImport = async (file: File) => {
+    setError('')
+    setNotice('')
     try {
       const data = JSON.parse(await file.text())
-      await api.importProject(data)
+      // Non-monetary parts are stored by the server; money is encrypted here
+      const project = await api.importProject(data)
+      const rc = data.rate_config ?? {}
+      const hasMoney =
+        rc.hourly_rates || rc.cost_rates || rc.ticket_price || rc.hw_cost_per_hour
+      if (hasMoney) {
+        if (vault.status === 'unlocked') {
+          const meta = await api.getMeta()
+          const base = emptyMoneyConfig(meta.locations, meta.levels, meta.ticket_sizes)
+          const money: MoneyConfig = {
+            ...base,
+            hourly_rates: { ...base.hourly_rates, ...(rc.hourly_rates ?? {}) },
+            cost_rates: Object.fromEntries(
+              meta.locations.map((loc) => [
+                loc,
+                { ...base.cost_rates[loc], ...((rc.cost_rates ?? {})[loc] ?? {}) },
+              ]),
+            ),
+            hw_cost_per_hour: Number(rc.hw_cost_per_hour ?? 0),
+            ticket_prices: { ...base.ticket_prices, ...(rc.ticket_price ?? {}) },
+          }
+          const blob = await vault.encrypt(money)
+          await api.putMoneyBlob(project.id, {
+            encrypted_money: blob.ciphertext,
+            money_iv: blob.iv,
+          })
+        } else {
+          setNotice(
+            'Project imported. The file contained money values, but the vault is locked — unlock it and re-import to bring them in encrypted.',
+          )
+        }
+      }
       load()
     } catch (e) {
       setError(`Import failed: ${(e as Error).message}`)
+    }
+  }
+
+  const handleExport = async (project: ProjectSummary) => {
+    setError('')
+    setNotice('')
+    try {
+      const data = (await api.exportProject(project.id)) as {
+        rate_config?: Record<string, unknown>
+      }
+      if (vault.status === 'unlocked') {
+        const blob = await api.getMoneyBlob(project.id)
+        if (blob.encrypted_money && blob.money_iv) {
+          const money = await vault.decrypt<MoneyConfig>({
+            iv: blob.money_iv,
+            ciphertext: blob.encrypted_money,
+          })
+          data.rate_config = {
+            ...(data.rate_config ?? {}),
+            hourly_rates: money.hourly_rates,
+            cost_rates: money.cost_rates,
+            hw_cost_per_hour: money.hw_cost_per_hour,
+            ticket_price: money.ticket_prices,
+          }
+        }
+      } else {
+        setNotice('Exported without money values (vault locked). Unlock to include them.')
+      }
+      downloadBlob(
+        new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
+        `${project.name}.json`,
+      )
+    } catch (e) {
+      setError(`Export failed: ${(e as Error).message}`)
     }
   }
 
@@ -49,7 +124,11 @@ export default function ProjectsPage() {
             Resource &amp; budget planning for RFQs
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          <Link to="/portfolio">
+            <Button variant="secondary">📊 Portfolio</Button>
+          </Link>
+          <VaultStatusButton />
           <input
             ref={fileInput}
             type="file"
@@ -73,6 +152,27 @@ export default function ProjectsPage() {
           <ErrorBanner message={error} />
         </div>
       )}
+      {notice && (
+        <div className="mb-4 rounded-lg border border-indigo-800 bg-indigo-950/50 px-4 py-3 text-sm text-indigo-200">
+          {notice}
+        </div>
+      )}
+
+      <div className="mb-4 flex gap-1.5">
+        {['', 'draft', 'quoted', 'won', 'lost'].map((s) => (
+          <button
+            key={s}
+            onClick={() => setStatusFilter(s)}
+            className={`rounded-full px-3 py-1 text-xs font-medium capitalize transition-colors ${
+              statusFilter === s
+                ? 'bg-indigo-600 text-white'
+                : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            {s || 'All'}
+          </button>
+        ))}
+      </div>
 
       {projects === null ? (
         <Spinner />
@@ -86,18 +186,28 @@ export default function ProjectsPage() {
             <Card key={p.id} className="hover:border-slate-600">
               <div className="flex items-start justify-between">
                 <Link to={`/projects/${p.id}`} className="group flex-1">
-                  <h2 className="text-lg font-semibold text-slate-100 group-hover:text-indigo-400">
-                    {p.name}
-                  </h2>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-semibold text-slate-100 group-hover:text-indigo-400">
+                      {p.name}
+                    </h2>
+                    <StatusBadge status={p.status} />
+                  </div>
                   <p className="text-sm text-slate-400">{p.company}</p>
                   <p className="mt-2 text-xs text-slate-500">
                     {MONTH_NAMES[p.start_month - 1]} {p.start_year} –{' '}
                     {MONTH_NAMES[p.end_month - 1]} {p.end_year}
+                    {(p.status === 'draft' || p.status === 'quoted') &&
+                      ` · ${p.win_probability_pct}% win`}
                   </p>
                 </Link>
-                <Button variant="ghost" onClick={() => handleDelete(p)} title="Delete project">
-                  🗑
-                </Button>
+                <div className="flex flex-col gap-1">
+                  <Button variant="ghost" onClick={() => handleDelete(p)} title="Delete project">
+                    🗑
+                  </Button>
+                  <Button variant="ghost" onClick={() => handleExport(p)} title="Export as JSON">
+                    ⬇
+                  </Button>
+                </div>
               </div>
             </Card>
           ))}

@@ -1,7 +1,9 @@
 import type {
-  BudgetPlan,
   Feature,
+  LegacyMoney,
   Meta,
+  MoneyBlob,
+  PortfolioCapacity,
   Project,
   ProjectSummary,
   ProjectTemplate,
@@ -10,6 +12,7 @@ import type {
   Role,
   RoleInput,
   ValidationResult,
+  VaultInfo,
 } from './types'
 
 const BASE = import.meta.env.VITE_API_URL ?? ''
@@ -46,7 +49,26 @@ export const api = {
   getMeta: () => request<Meta>('/api/meta'),
   listTemplates: () => request<ProjectTemplate[]>('/api/templates'),
 
-  listProjects: () => request<ProjectSummary[]>('/api/projects'),
+  listProjects: (opts?: { status?: string; includeScenarios?: boolean }) => {
+    const params = new URLSearchParams()
+    if (opts?.status) params.set('status', opts.status)
+    if (opts?.includeScenarios) params.set('include_scenarios', 'true')
+    const qs = params.toString()
+    return request<ProjectSummary[]>(`/api/projects${qs ? `?${qs}` : ''}`)
+  },
+  cloneProject: (projectId: number, name: string, asScenario: boolean) =>
+    request<Project>(`/api/projects/${projectId}/clone`, {
+      method: 'POST',
+      body: JSON.stringify({ name, as_scenario: asScenario }),
+    }),
+  listScenarios: (projectId: number) =>
+    request<ProjectSummary[]>(`/api/projects/${projectId}/scenarios`),
+  promoteScenario: (projectId: number) =>
+    request<ProjectSummary>(`/api/projects/${projectId}/promote`, { method: 'POST' }),
+  getPortfolioCapacity: (statuses?: string[]) =>
+    request<PortfolioCapacity>(
+      `/api/portfolio/capacity${statuses?.length ? `?statuses=${statuses.join(',')}` : ''}`,
+    ),
   createProject: (data: Partial<ProjectSummary> & { template_id?: string | null }) =>
     request<Project>('/api/projects', { method: 'POST', body: JSON.stringify(data) }),
   getProject: (id: number) => request<Project>(`/api/projects/${id}`),
@@ -102,13 +124,31 @@ export const api = {
 
   getResourcePlan: (projectId: number) =>
     request<ResourcePlan>(`/api/projects/${projectId}/reports/resource-plan`),
-  getBudgetPlan: (projectId: number) =>
-    request<BudgetPlan>(`/api/projects/${projectId}/reports/budget-plan`),
 
   resourcePlanXlsxUrl: (projectId: number) =>
     `${BASE}/api/projects/${projectId}/reports/resource-plan.xlsx`,
-  budgetPlanXlsxUrl: (projectId: number) =>
-    `${BASE}/api/projects/${projectId}/reports/budget-plan.xlsx`,
+
+  // Vault & end-to-end encrypted money
+  getVault: () => request<VaultInfo>('/api/vault'),
+  createVault: (keys: {
+    kdf_salt: string
+    kdf_iterations: number
+    wrapped_dek_passphrase_iv: string
+    wrapped_dek_passphrase: string
+    wrapped_dek_recovery_iv: string
+    wrapped_dek_recovery: string
+  }) => request<VaultInfo>('/api/vault', { method: 'POST', body: JSON.stringify(keys) }),
+  getMoneyBlob: (projectId: number) =>
+    request<MoneyBlob>(`/api/projects/${projectId}/money`),
+  putMoneyBlob: (projectId: number, blob: MoneyBlob) =>
+    request<MoneyBlob>(`/api/projects/${projectId}/money`, {
+      method: 'PUT',
+      body: JSON.stringify(blob),
+    }),
+  getLegacyMoney: (projectId: number) =>
+    request<LegacyMoney>(`/api/projects/${projectId}/money/legacy`),
+  purgeLegacyMoney: (projectId: number) =>
+    request<void>(`/api/projects/${projectId}/money/purge-plaintext`, { method: 'POST' }),
 }
 
 export { ApiError }

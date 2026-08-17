@@ -116,6 +116,25 @@ export function Modal({
   )
 }
 
+const STATUS_STYLES: Record<string, string> = {
+  draft: 'bg-slate-800 text-slate-300 border-slate-600',
+  quoted: 'bg-sky-950 text-sky-300 border-sky-800',
+  won: 'bg-emerald-950 text-emerald-300 border-emerald-800',
+  lost: 'bg-rose-950 text-rose-300 border-rose-800',
+}
+
+export function StatusBadge({ status }: { status: string }) {
+  return (
+    <span
+      className={`rounded-full border px-2.5 py-0.5 text-xs font-medium capitalize ${
+        STATUS_STYLES[status] ?? STATUS_STYLES.draft
+      }`}
+    >
+      {status}
+    </span>
+  )
+}
+
 export function Spinner() {
   return (
     <div className="flex justify-center py-10">

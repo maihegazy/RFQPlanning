@@ -17,6 +17,9 @@ export default function InfoTab({
   const [startMonth, setStartMonth] = useState(project.start_month)
   const [endYear, setEndYear] = useState(project.end_year)
   const [endMonth, setEndMonth] = useState(project.end_month)
+  const [status, setStatus] = useState<string>(project.status)
+  const [winProb, setWinProb] = useState(project.win_probability_pct)
+  const [lostReason, setLostReason] = useState(project.lost_reason ?? '')
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -34,6 +37,9 @@ export default function InfoTab({
         start_month: startMonth,
         end_year: endYear,
         end_month: endMonth,
+        status: status as Project['status'],
+        win_probability_pct: winProb,
+        lost_reason: status === 'lost' ? lostReason : null,
       })
       setSaved(true)
       onSaved()
@@ -98,6 +104,39 @@ export default function InfoTab({
                 />
               </div>
             </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4 border-t border-slate-800 pt-4">
+            <div>
+              <Label>RFQ Status</Label>
+              <Select value={status} onChange={(e) => setStatus(e.target.value)}>
+                {['draft', 'quoted', 'won', 'lost'].map((s) => (
+                  <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+                ))}
+              </Select>
+            </div>
+            {(status === 'draft' || status === 'quoted') && (
+              <div>
+                <Label>Win probability (%)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={winProb}
+                  onChange={(e) => setWinProb(Number(e.target.value))}
+                />
+              </div>
+            )}
+            {status === 'lost' && (
+              <div className="col-span-2">
+                <Label>Lost reason</Label>
+                <Input
+                  value={lostReason}
+                  onChange={(e) => setLostReason(e.target.value)}
+                  placeholder="e.g. Competitor undercut on price"
+                />
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-3 pt-2">
             <Button onClick={save} disabled={saving}>

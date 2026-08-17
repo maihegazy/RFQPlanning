@@ -32,6 +32,8 @@ export interface Feature {
   roles: Role[]
 }
 
+export type ProjectStatus = 'draft' | 'quoted' | 'won' | 'lost'
+
 export interface ProjectSummary {
   id: number
   name: string
@@ -40,6 +42,11 @@ export interface ProjectSummary {
   start_month: number
   end_year: number
   end_month: number
+  status: ProjectStatus
+  win_probability_pct: number
+  lost_reason: string | null
+  base_project_id: number | null
+  is_winning_scenario: boolean
   created_at: string
   updated_at: string
 }
@@ -48,57 +55,12 @@ export interface Project extends ProjectSummary {
   features: Feature[]
 }
 
+/** Non-monetary configuration served by the API. Money lives encrypted. */
 export interface RateConfig {
-  hourly_rates: Record<string, number>
-  cost_rates: Record<string, Record<string, number>>
   sp_to_hours: number
-  hw_cost_per_hour: number
   risk_factor_pct: number
   ticket_story_points: Record<string, number>
-  ticket_prices: Record<string, number>
   ticket_quotas: Record<string, Record<string, number>>
-}
-
-export interface CostProfitRow {
-  year: string
-  location: string
-  man_hours: number
-  cost: number
-  selling_price: number
-  hourly_cost: number
-  hourly_rate: number
-  profit: number
-  profit_pct: number
-}
-
-export interface CostProfitOverall {
-  year: string
-  man_hours: number
-  cost: number
-  selling_price: number
-  hourly_cost: number
-  hourly_rate: number
-  profit: number
-  profit_pct: number
-}
-
-export interface TicketAnalysisRow {
-  year: string
-  size: string
-  story_points: number
-  hours_per_ticket: number
-  num_tickets: number
-  total_hours: number
-  hourly_rate: number
-  revenue: number
-}
-
-export interface TicketOverall {
-  year: string
-  revenue: number
-  cost: number
-  profit: number
-  profit_pct: number
 }
 
 export interface PivotTable {
@@ -107,16 +69,31 @@ export interface PivotTable {
   rows: Record<string, string | number>[]
 }
 
-export interface BudgetPlan {
-  cost_profit_summary: CostProfitRow[]
-  cost_profit_overall: CostProfitOverall[]
-  ticket_analysis: TicketAnalysisRow[]
-  ticket_overall: TicketOverall[]
+export interface ResourcePlan {
   yearly_pivots: PivotTable[]
 }
 
-export interface ResourcePlan {
-  yearly_pivots: PivotTable[]
+export interface VaultInfo {
+  exists: boolean
+  kdf_salt: string
+  kdf_iterations: number
+  wrapped_dek_passphrase_iv: string
+  wrapped_dek_passphrase: string
+  wrapped_dek_recovery_iv: string
+  wrapped_dek_recovery: string
+}
+
+export interface MoneyBlob {
+  encrypted_money: string | null
+  money_iv: string | null
+}
+
+export interface LegacyMoney {
+  hourly_rates: Record<string, number>
+  cost_rates: Record<string, Record<string, number>>
+  hw_cost_per_hour: number
+  ticket_prices: Record<string, number>
+  has_data: boolean
 }
 
 export interface ValidationResult {
@@ -147,5 +124,14 @@ export interface Meta {
   locations: string[]
   levels: string[]
   ticket_sizes: string[]
+  project_statuses: ProjectStatus[]
   hours_per_fte_per_month: number
+}
+
+export interface PortfolioCapacity {
+  months: string[]
+  locations: string[]
+  cells: Record<string, Record<string, number>>
+  totals_by_month: Record<string, number>
+  project_count: number
 }
