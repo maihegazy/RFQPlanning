@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
-from ..config import PROJECT_STATUSES, TICKET_SIZES
+from ..config import TICKET_SIZES
 from ..database import get_db
 from ..services import calculations, cloning
 from ..services.rate_config import get_rate_config
@@ -267,76 +267,63 @@ def export_project(project_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/import", response_model=schemas.ProjectOut, status_code=201)
-def import_project(data: dict, db: Session = Depends(get_db)):
+def import_project(data: schemas.LegacyProjectImport, db: Session = Depends(get_db)):
     """Import a project from the desktop app's JSON format."""
-    dates = data.get("dates", [])
-    try:
-        start_year, start_month = int(dates[0]), int(dates[1])
-        end_year, end_month = int(dates[2]), int(dates[3])
-    except (IndexError, ValueError, TypeError):
-        raise HTTPException(status_code=422, detail="Invalid or missing 'dates' array")
-
-    status = data.get("status", "draft")
-    if status not in PROJECT_STATUSES:
-        status = "draft"
+    start_year, start_month, end_year, end_month = data.dates
     project = models.Project(
-        name=data.get("project_name", "Project"),
-        company=data.get("company_name", "Company"),
+        name=data.project_name,
+        company=data.company_name,
         start_year=start_year, start_month=start_month,
         end_year=end_year, end_month=end_month,
-        status=status,
-        win_probability_pct=float(data.get("win_probability_pct", 50.0)),
-        lost_reason=data.get("lost_reason"),
+        status=data.status,
+        win_probability_pct=data.win_probability_pct,
+        lost_reason=data.lost_reason,
     )
     db.add(project)
     db.flush()
 
-    for feature_data in data.get("features", []):
+    for feature_data in data.features:
         feature = models.Feature(project_id=project.id,
-                                 name=feature_data.get("Feature", ""))
+                                 name=feature_data.name)
         db.add(feature)
         db.flush()
-        for role_data in feature_data.get("Roles", []):
+        for role_data in feature_data.roles:
             role = models.Role(
                 feature_id=feature.id,
-                name=role_data.get("Role", ""),
-                location=role_data.get("Location", ""),
-                level=role_data.get("Level", ""),
-                ftes=float(role_data.get("FTEs", 0.0)),
-                use_advanced_allocation=bool(role_data.get("use_advanced_allocation", False)),
+                name=role_data.name,
+                location=role_data.location,
+                level=role_data.level,
+                ftes=role_data.ftes,
+                use_advanced_allocation=role_data.use_advanced_allocation,
             )
             db.add(role)
             db.flush()
-            for alloc in role_data.get("allocations", []):
+            for alloc in role_data.allocations:
                 db.add(models.AllocationPeriod(
                     role_id=role.id,
-                    start_month=alloc.get("start_month", ""),
-                    end_month=alloc.get("end_month", ""),
-                    ftes=float(alloc.get("ftes", 0.0)),
+                    start_month=alloc.start_month,
+                    end_month=alloc.end_month,
+                    ftes=alloc.ftes,
                 ))
 
     # Monetary values in the file (hourly_rates, cost_rates, ticket_price,
     # hw_cost_per_hour) are NOT stored in plaintext — the browser encrypts
     # them into the project's money blob after this import returns.
-    rc = data.get("rate_config", {})
-    project.sp_to_hours = float(rc.get("sp_to_hours", 4.0))
-    project.risk_factor_pct = float(rc.get("risk_factor_pct", 0.0))
+    rc = data.rate_config
+    project.sp_to_hours = rc.sp_to_hours
+    project.risk_factor_pct = rc.risk_factor_pct
 
     for size in TICKET_SIZES:
         db.add(models.TicketConfig(
             project_id=project.id, size=size,
-            story_points=float(rc.get("ticket_sp", {}).get(size, 0.0)),
+            story_points=rc.ticket_sp.get(size, 0.0),
         ))
 
-    for year_str, quotas in rc.get("ticket_quota", {}).items():
-        try:
-            year = int(year_str)
-        except (ValueError, TypeError):
-            continue
+    for year, quotas in rc.ticket_quota.items():
         for size in TICKET_SIZES:
             db.add(models.TicketQuota(
                 project_id=project.id, year=year, size=size,
-                quota_pct=float(quotas.get(size, 0.0)),
+                quota_pct=quotas.get(size, 0.0),
             ))
 
     db.commit()

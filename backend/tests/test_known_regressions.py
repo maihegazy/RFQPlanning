@@ -119,11 +119,8 @@ def test_rejects_allocation_period_outside_project(client):
     assert response.status_code == 422
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Malformed numeric values in legacy imports currently raise HTTP 500",
-)
 def test_malformed_legacy_import_returns_422(client):
+    before = len(client.get("/api/projects").json())
     response = client.post("/api/projects/import", json={
         "project_name": "Malformed import",
         "company_name": "Vehiclevo",
@@ -132,6 +129,27 @@ def test_malformed_legacy_import_returns_422(client):
         "features": [],
     })
     assert response.status_code == 422
+    assert len(client.get("/api/projects").json()) == before
+
+
+def test_malformed_nested_legacy_import_returns_422_without_partial_write(client):
+    before = len(client.get("/api/projects").json())
+    response = client.post("/api/projects/import", json={
+        "project_name": "Malformed nested import",
+        "company_name": "Vehiclevo",
+        "dates": ["2026", "1", "2026", "12"],
+        "features": [{
+            "Feature": "Feature",
+            "Roles": [{
+                "Role": "Developer",
+                "Location": "unknown",
+                "Level": "Senior",
+                "FTEs": 1,
+            }],
+        }],
+    })
+    assert response.status_code == 422
+    assert len(client.get("/api/projects").json()) == before
 
 
 def test_partial_resource_grid_payload_is_rejected(client):

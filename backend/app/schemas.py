@@ -262,6 +262,108 @@ class LegacyMoneyOut(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Legacy desktop JSON import
+# ---------------------------------------------------------------------------
+
+class LegacyRoleImport(RoleCreate):
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    name: str = Field(..., alias="Role", min_length=1, max_length=255)
+    location: str = Field(..., alias="Location")
+    level: str = Field(..., alias="Level")
+    ftes: float = Field(0.0, alias="FTEs", ge=0.0)
+
+
+class LegacyFeatureImport(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    name: str = Field(..., alias="Feature", min_length=1, max_length=255)
+    roles: list[LegacyRoleImport] = Field(default_factory=list, alias="Roles")
+
+
+class LegacyRateConfigImport(BaseModel):
+    """Validated non-monetary settings; legacy money fields remain allowed."""
+
+    model_config = ConfigDict(extra="allow")
+
+    sp_to_hours: float = Field(4.0, ge=0.0)
+    risk_factor_pct: float = Field(0.0, ge=0.0)
+    ticket_sp: dict[str, float] = Field(default_factory=dict)
+    ticket_quota: dict[int, dict[str, float]] = Field(default_factory=dict)
+
+    @field_validator("ticket_sp")
+    @classmethod
+    def valid_story_points(cls, values):
+        for size, points in values.items():
+            if size not in TICKET_SIZES:
+                raise ValueError(f"Invalid ticket size: {size}")
+            if points < 0:
+                raise ValueError(f"Story points for {size} cannot be negative")
+        return values
+
+    @field_validator("ticket_quota")
+    @classmethod
+    def valid_quotas(cls, values):
+        for year, quotas in values.items():
+            for size, percentage in quotas.items():
+                if size not in TICKET_SIZES:
+                    raise ValueError(f"Invalid ticket size: {size}")
+                if not 0 <= percentage <= 100:
+                    raise ValueError(
+                        f"Quota for {size} in {year} must be between 0 and 100%"
+                    )
+            if sum(quotas.values()) > 100:
+                raise ValueError(f"Ticket quotas for {year} cannot exceed 100%")
+        return values
+
+
+class LegacyProjectImport(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    project_name: str = Field("Project", min_length=1, max_length=255)
+    company_name: str = Field("Company", min_length=1, max_length=255)
+    dates: tuple[int, int, int, int]
+    status: str = "draft"
+    win_probability_pct: float = Field(50.0, ge=0.0, le=100.0)
+    lost_reason: Optional[str] = Field(None, max_length=1000)
+    features: list[LegacyFeatureImport] = Field(default_factory=list)
+    rate_config: LegacyRateConfigImport = Field(default_factory=LegacyRateConfigImport)
+
+    @field_validator("status")
+    @classmethod
+    def valid_import_status(cls, value):
+        if value not in PROJECT_STATUSES:
+            raise ValueError(
+                f"Invalid status: {value}. Must be one of {PROJECT_STATUSES}"
+            )
+        return value
+
+    @model_validator(mode="after")
+    def valid_import_dates(self):
+        start_year, start_month, end_year, end_month = self.dates
+        if not 1900 <= start_year <= 2200 or not 1900 <= end_year <= 2200:
+            raise ValueError("Import years must be between 1900 and 2200")
+        if not 1 <= start_month <= 12 or not 1 <= end_month <= 12:
+            raise ValueError("Import months must be between 1 and 12")
+        if (start_year, start_month) > (end_year, end_month):
+            raise ValueError("Project start date must be before or equal to end date")
+        project_start = f"{start_year:04d}-{start_month:02d}"
+        project_end = f"{end_year:04d}-{end_month:02d}"
+        for feature in self.features:
+            for role in feature.roles:
+                for period in role.allocations:
+                    if (
+                        period.start_month < project_start
+                        or period.end_month > project_end
+                    ):
+                        raise ValueError(
+                            f"Allocation period for {role.name} must stay within "
+                            f"project timeline {project_start} to {project_end}"
+                        )
+        return self
+
+
+# ---------------------------------------------------------------------------
 # Reports
 # ---------------------------------------------------------------------------
 
