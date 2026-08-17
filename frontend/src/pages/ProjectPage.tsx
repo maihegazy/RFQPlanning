@@ -55,7 +55,7 @@ function SaveTemplateModal({
             Snapshots this project's structure — {featureCount} feature
             {featureCount === 1 ? '' : 's'} with {roleCount} role
             {roleCount === 1 ? '' : 's'} — as a reusable template. Roles with variable
-            FTE periods are saved with their average FTE. Money data and the timeline
+            FTE periods are saved with their average FTE. Financial data and the timeline
             are not part of a template.
           </p>
           {error && <ErrorBanner message={error} />}

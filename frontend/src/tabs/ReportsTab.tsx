@@ -76,7 +76,7 @@ export default function ReportsTab({ project, meta }: { project: Project; meta: 
       {!unlocked ? (
         <VaultPrompt>
           Cost-profit analysis, ticket revenue and budget pivots are computed from
-          end-to-end encrypted money data. Unlock the vault to view them — the
+          end-to-end encrypted financial data. Unlock the vault to view them — the
           resource plan below is available without unlocking.
         </VaultPrompt>
       ) : budget === null ? (

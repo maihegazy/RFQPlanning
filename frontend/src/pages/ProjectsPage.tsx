@@ -71,7 +71,7 @@ export default function ProjectsPage() {
           })
         } else {
           setNotice(
-            'Project imported. The file contained money values, but the vault is locked — unlock it and re-import to bring them in encrypted.',
+            'Project imported. The file contained financial values, but the vault is locked — unlock it and re-import to bring them in encrypted.',
           )
         }
       }
@@ -104,7 +104,7 @@ export default function ProjectsPage() {
           }
         }
       } else {
-        setNotice('Exported without money values (vault locked). Unlock to include them.')
+        setNotice('Exported without financial values (vault locked). Unlock to include them.')
       }
       downloadBlob(
         new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),

@@ -131,7 +131,7 @@ export default function CompareTab({
     <div className="space-y-6">
       {vault.status !== 'unlocked' && (
         <VaultPrompt>
-          Unlock money data to compare revenue, cost and margins. Effort figures below
+          Unlock financial data to compare revenue, cost and margins. Effort figures below
           are available without unlocking.
         </VaultPrompt>
       )}
