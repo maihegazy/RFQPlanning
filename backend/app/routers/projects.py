@@ -8,7 +8,7 @@ from ..config import PROJECT_STATUSES, TICKET_SIZES
 from ..database import get_db
 from ..services import calculations, cloning
 from ..services.rate_config import get_rate_config
-from ..templates import get_template
+from ..templates import resolve_template
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -35,7 +35,7 @@ def list_projects(status: str | None = None, include_scenarios: bool = False,
 def create_project(data: schemas.ProjectCreate, db: Session = Depends(get_db)):
     template = None
     if data.template_id:
-        template = get_template(data.template_id)
+        template = resolve_template(db, data.template_id)
         if template is None:
             raise HTTPException(status_code=422,
                                 detail=f"Unknown template: {data.template_id}")
@@ -49,13 +49,13 @@ def create_project(data: schemas.ProjectCreate, db: Session = Depends(get_db)):
             feature = models.Feature(project_id=project.id, name=feature_def["name"])
             db.add(feature)
             db.flush()
-            for role_name, location, level, ftes in feature_def["roles"]:
+            for role in feature_def["roles"]:
                 db.add(models.Role(
                     feature_id=feature.id,
-                    name=role_name,
-                    location=location,
-                    level=level,
-                    ftes=ftes,
+                    name=role["name"],
+                    location=role["location"],
+                    level=role["level"],
+                    ftes=float(role["ftes"]),
                     use_advanced_allocation=False,
                 ))
 
@@ -85,6 +85,60 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
     project = get_project_or_404(project_id, db)
     db.delete(project)
     db.commit()
+
+
+@router.post("/{project_id}/save-as-template",
+             response_model=schemas.TemplateOut, status_code=201)
+def save_as_template(project_id: int, data: schemas.SaveTemplateRequest,
+                     db: Session = Depends(get_db)):
+    """Snapshot the project's features and roles as a reusable template.
+
+    Templates are timeline-independent, so roles with variable allocation
+    periods are captured as a fixed FTE equal to their average utilization
+    over the project's months (rounded to 1 decimal). Money is never part
+    of a template.
+    """
+    import json
+
+    project = get_project_or_404(project_id, db)
+    months = calculations.get_project_months(project)
+
+    features = []
+    for feature in project.features:
+        roles = []
+        for role in feature.roles:
+            if role.use_advanced_allocation and months:
+                total = sum(calculations.get_ftes_for_month(role, m) for m in months)
+                ftes = round(total / len(months), 1)
+            else:
+                ftes = role.ftes
+            roles.append({
+                "name": role.name,
+                "location": role.location,
+                "level": role.level,
+                "ftes": ftes,
+            })
+        features.append({"name": feature.name, "roles": roles})
+
+    if not features:
+        raise HTTPException(status_code=400,
+                            detail="Project has no features to save as a template")
+
+    record = models.CustomTemplate(
+        name=data.name,
+        description=data.description,
+        features_json=json.dumps(features),
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return {
+        "id": f"custom-{record.id}",
+        "name": record.name,
+        "description": record.description,
+        "custom": True,
+        "features": features,
+    }
 
 
 @router.post("/{project_id}/clone", response_model=schemas.ProjectOut, status_code=201)

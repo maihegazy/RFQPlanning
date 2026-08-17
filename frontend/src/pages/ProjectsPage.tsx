@@ -233,29 +233,48 @@ function TemplateOption({
   title,
   description,
   detail,
+  onDelete,
 }: {
   selected: boolean
   onSelect: () => void
   title: string
   description: string
   detail?: string
+  onDelete?: () => void
 }) {
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onSelect}
-      className={`rounded-lg border p-3 text-left transition-colors ${
+      onKeyDown={(e) => e.key === 'Enter' && onSelect()}
+      className={`cursor-pointer rounded-lg border p-3 text-left transition-colors ${
         selected
           ? 'border-indigo-500 bg-indigo-950/40'
           : 'border-slate-700 bg-slate-900 hover:border-slate-500'
       }`}
     >
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <span className="text-sm font-semibold text-slate-100">{title}</span>
-        {detail && <span className="text-[11px] text-slate-500">{detail}</span>}
+        <span className="flex items-center gap-1.5">
+          {detail && <span className="text-[11px] text-slate-500">{detail}</span>}
+          {onDelete && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                onDelete()
+              }}
+              className="rounded p-0.5 text-slate-600 hover:bg-slate-800 hover:text-rose-400"
+              title="Delete this template"
+            >
+              🗑
+            </button>
+          )}
+        </span>
       </div>
       <p className="mt-1 text-xs leading-relaxed text-slate-400">{description}</p>
-    </button>
+    </div>
   )
 }
 
@@ -362,12 +381,22 @@ function CreateProjectModal({
                 key={t.id}
                 selected={templateId === t.id}
                 onSelect={() => setTemplateId(t.id)}
-                title={t.name}
+                title={t.custom ? `★ ${t.name}` : t.name}
                 description={t.description}
                 detail={`${t.features.length} features · ${t.features.reduce(
                   (n, f) => n + f.roles.length,
                   0,
                 )} roles`}
+                onDelete={
+                  t.custom
+                    ? async () => {
+                        if (!window.confirm(`Delete template "${t.name}"?`)) return
+                        await api.deleteTemplate(t.id)
+                        if (templateId === t.id) setTemplateId(null)
+                        setTemplates(await api.listTemplates())
+                      }
+                    : undefined
+                }
               />
             ))}
           </div>

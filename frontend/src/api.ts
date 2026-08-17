@@ -48,6 +48,13 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 export const api = {
   getMeta: () => request<Meta>('/api/meta'),
   listTemplates: () => request<ProjectTemplate[]>('/api/templates'),
+  saveAsTemplate: (projectId: number, name: string, description: string) =>
+    request<ProjectTemplate>(`/api/projects/${projectId}/save-as-template`, {
+      method: 'POST',
+      body: JSON.stringify({ name, description }),
+    }),
+  deleteTemplate: (templateId: string) =>
+    request<void>(`/api/templates/${templateId}`, { method: 'DELETE' }),
 
   listProjects: (opts?: { status?: string; includeScenarios?: boolean }) => {
     const params = new URLSearchParams()

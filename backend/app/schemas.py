@@ -312,7 +312,13 @@ class TemplateOut(BaseModel):
     id: str
     name: str
     description: str
+    custom: bool = False
     features: list[TemplateFeatureOut]
+
+
+class SaveTemplateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    description: str = Field("", max_length=1000)
 
 
 class MetaOut(BaseModel):

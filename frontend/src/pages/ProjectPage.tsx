@@ -2,13 +2,91 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, NavLink, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
 import type { Meta, Project, ProjectSummary } from '../types'
-import { Button, ErrorBanner, Spinner, StatusBadge } from '../components/ui'
+import { Button, ErrorBanner, Input, Label, Modal, Spinner, StatusBadge } from '../components/ui'
 import { VaultStatusButton } from '../vault/VaultGate'
 import InfoTab from '../tabs/InfoTab'
 import ResourcesTab from '../tabs/ResourcesTab'
 import BudgetTab from '../tabs/BudgetTab'
 import ReportsTab from '../tabs/ReportsTab'
 import CompareTab from '../tabs/CompareTab'
+
+function SaveTemplateModal({
+  project,
+  onClose,
+}: {
+  project: Project
+  onClose: () => void
+}) {
+  const [name, setName] = useState(`${project.name} Template`)
+  const [description, setDescription] = useState('')
+  const [error, setError] = useState('')
+  const [savedName, setSavedName] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const featureCount = project.features.length
+  const roleCount = project.features.reduce((n, f) => n + f.roles.length, 0)
+
+  const save = async () => {
+    setSaving(true)
+    setError('')
+    try {
+      const template = await api.saveAsTemplate(project.id, name.trim(), description.trim())
+      setSavedName(template.name)
+    } catch (e) {
+      setError((e as Error).message)
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal title="Save as Template" onClose={onClose}>
+      {savedName ? (
+        <div className="space-y-4">
+          <div className="rounded-lg border border-emerald-800 bg-emerald-950/50 px-4 py-3 text-sm text-emerald-300">
+            ✓ Template "{savedName}" saved. It now appears in the New Project dialog.
+          </div>
+          <div className="flex justify-end">
+            <Button onClick={onClose}>Done</Button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <p className="text-sm text-slate-400">
+            Snapshots this project's structure — {featureCount} feature
+            {featureCount === 1 ? '' : 's'} with {roleCount} role
+            {roleCount === 1 ? '' : 's'} — as a reusable template. Roles with variable
+            FTE periods are saved with their average FTE. Money data and the timeline
+            are not part of a template.
+          </p>
+          {error && <ErrorBanner message={error} />}
+          <div>
+            <Label>Template name</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+          </div>
+          <div>
+            <Label>Description (optional)</Label>
+            <Input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="e.g. Standard staffing for gateway ECU projects"
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={onClose}>Cancel</Button>
+            <Button onClick={save} disabled={saving || !name.trim() || featureCount === 0}>
+              {saving ? 'Saving…' : 'Save Template'}
+            </Button>
+          </div>
+          {featureCount === 0 && (
+            <p className="text-xs text-amber-400">
+              Add at least one feature before saving a template.
+            </p>
+          )}
+        </div>
+      )}
+    </Modal>
+  )
+}
 
 const TABS = [
   { path: 'info', label: 'Project Info' },
@@ -26,6 +104,7 @@ export default function ProjectPage() {
   const [family, setFamily] = useState<ProjectSummary[]>([])
   const [meta, setMeta] = useState<Meta | null>(null)
   const [error, setError] = useState('')
+  const [showSaveTemplate, setShowSaveTemplate] = useState(false)
 
   const reload = useCallback(() => {
     api.getProject(id).then(setProject).catch((e) => setError(e.message))
@@ -102,6 +181,9 @@ export default function ProjectPage() {
             <Button variant="secondary" onClick={newScenario}>
               + New Scenario
             </Button>
+            <Button variant="secondary" onClick={() => setShowSaveTemplate(true)}>
+              Save as Template
+            </Button>
             <VaultStatusButton />
           </div>
         </div>
@@ -124,6 +206,10 @@ export default function ProjectPage() {
           </NavLink>
         ))}
       </nav>
+
+      {showSaveTemplate && (
+        <SaveTemplateModal project={project} onClose={() => setShowSaveTemplate(false)} />
+      )}
 
       <Routes>
         <Route index element={<Navigate to="info" replace />} />
