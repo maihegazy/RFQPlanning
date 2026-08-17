@@ -73,7 +73,21 @@ def get_project(project_id: int, db: Session = Depends(get_db)):
 def update_project(project_id: int, data: schemas.ProjectUpdate,
                    db: Session = Depends(get_db)):
     project = get_project_or_404(project_id, db)
-    for field, value in data.model_dump(exclude_unset=True).items():
+    updates = data.model_dump(exclude_unset=True)
+    start = (
+        updates.get("start_year", project.start_year),
+        updates.get("start_month", project.start_month),
+    )
+    end = (
+        updates.get("end_year", project.end_year),
+        updates.get("end_month", project.end_month),
+    )
+    if start > end:
+        raise HTTPException(
+            status_code=422,
+            detail="Project start date must be before or equal to end date",
+        )
+    for field, value in updates.items():
         setattr(project, field, value)
     db.commit()
     db.refresh(project)

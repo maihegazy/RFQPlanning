@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .config import LEVELS, LOCATIONS, PROJECT_STATUSES, TICKET_SIZES
 
@@ -63,7 +63,31 @@ class RoleBase(BaseModel):
 
 
 class RoleCreate(RoleBase):
-    allocations: list[AllocationPeriodCreate] = []
+    allocations: list[AllocationPeriodCreate] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def valid_allocation_mode(self):
+        if not self.use_advanced_allocation:
+            if self.ftes > 2.0:
+                raise ValueError(
+                    "FTEs cannot exceed 2.0 for fixed allocation; "
+                    "use variable periods for higher values"
+                )
+            return self
+
+        if not self.allocations:
+            raise ValueError("Variable allocation requires at least one period")
+
+        periods = sorted(self.allocations, key=lambda period: period.start_month)
+        for period in periods:
+            if period.start_month > period.end_month:
+                raise ValueError(
+                    "Allocation period start month must be before or equal to end month"
+                )
+        for current, following in zip(periods, periods[1:]):
+            if current.end_month >= following.start_month:
+                raise ValueError("Allocation periods cannot overlap")
+        return self
 
 
 class RoleUpdate(RoleCreate):
@@ -123,6 +147,12 @@ class ProjectBase(BaseModel):
         if v not in PROJECT_STATUSES:
             raise ValueError(f"Invalid status: {v}. Must be one of {PROJECT_STATUSES}")
         return v
+
+    @model_validator(mode="after")
+    def valid_date_range(self):
+        if (self.start_year, self.start_month) > (self.end_year, self.end_month):
+            raise ValueError("Project start date must be before or equal to end date")
+        return self
 
 
 class ProjectCreate(ProjectBase):
