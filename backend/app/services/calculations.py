@@ -1,16 +1,12 @@
-"""Business calculations ported from the desktop app.
+"""Effort calculations (time-aware FTE allocation, resource pivots).
 
-All logic (time-aware FTE allocation, cost-profit summary, ticket
-analysis, yearly pivots with location subtotals) mirrors the original
-BudgetController / ResourceController implementations.
+Monetary calculations (cost-profit, ticket revenue, budget pivots) run
+exclusively in the browser against end-to-end encrypted money data — see
+frontend/src/money/engine.ts, which mirrors the same row/pivot structure.
 """
 
-from collections import defaultdict
-
 from .. import models
-from ..config import HOURS_PER_FTE_PER_MONTH
 from .date_utils import get_month_list
-from .rate_config import get_rate_config
 
 
 def get_ftes_for_month(role: models.Role, month: str) -> float:
@@ -29,157 +25,6 @@ def get_project_months(project: models.Project) -> list[str]:
         project.start_year, project.start_month,
         project.end_year, project.end_month,
     )
-
-
-def build_budget_rows(project: models.Project, months: list[str]) -> list[dict]:
-    """Per-month, per-role rows with man-hours, cost and selling price."""
-    rates = get_rate_config(project)
-    rows = []
-    for month in months:
-        for feature in project.features:
-            for role in feature.roles:
-                monthly_ftes = get_ftes_for_month(role, month)
-                man_hours = monthly_ftes * HOURS_PER_FTE_PER_MONTH
-                selling_price = man_hours * rates["hourly_rates"].get(role.location, 0.0)
-                cost = man_hours * rates["cost_rates"].get(role.location, {}).get(role.level, 0.0)
-                rows.append({
-                    "month": month,
-                    "year": month[:4],
-                    "feature": feature.name,
-                    "role": role.name,
-                    "location": role.location,
-                    "level": role.level,
-                    "ftes": monthly_ftes,
-                    "man_hours": man_hours,
-                    "selling_price": selling_price,
-                    "cost": cost,
-                })
-    return rows
-
-
-def generate_cost_profit_summary(budget_rows: list[dict]) -> list[dict]:
-    """Cost-profit summary grouped by year and location."""
-    grouped: dict[tuple[str, str], dict] = defaultdict(
-        lambda: {"man_hours": 0.0, "cost": 0.0, "selling_price": 0.0}
-    )
-    for row in budget_rows:
-        key = (row["year"], row["location"])
-        grouped[key]["man_hours"] += row["man_hours"]
-        grouped[key]["cost"] += row["cost"]
-        grouped[key]["selling_price"] += row["selling_price"]
-
-    summary = []
-    for (year, location) in sorted(grouped.keys()):
-        g = grouped[(year, location)]
-        profit = g["selling_price"] - g["cost"]
-        summary.append({
-            "year": year,
-            "location": location,
-            "man_hours": g["man_hours"],
-            "cost": g["cost"],
-            "selling_price": g["selling_price"],
-            "hourly_cost": g["cost"] / g["man_hours"] if g["man_hours"] != 0 else 0.0,
-            "hourly_rate": g["selling_price"] / g["man_hours"] if g["man_hours"] != 0 else 0.0,
-            "profit": profit,
-            "profit_pct": (profit / g["selling_price"] * 100) if g["selling_price"] != 0 else 0.0,
-        })
-    return summary
-
-
-def generate_cost_profit_overall(summary: list[dict]) -> list[dict]:
-    """Overall (all-locations) row per year, as shown in the Excel report."""
-    by_year: dict[str, list[dict]] = defaultdict(list)
-    for row in summary:
-        by_year[row["year"]].append(row)
-
-    overall = []
-    for year in sorted(by_year):
-        rows = by_year[year]
-        man_hours = sum(r["man_hours"] for r in rows)
-        cost = sum(r["cost"] for r in rows)
-        selling = sum(r["selling_price"] for r in rows)
-        profit = selling - cost
-        overall.append({
-            "year": year,
-            "man_hours": man_hours,
-            "cost": cost,
-            "selling_price": selling,
-            "hourly_cost": cost / man_hours if man_hours > 0 else 0.0,
-            "hourly_rate": selling / man_hours if man_hours > 0 else 0.0,
-            "profit": profit,
-            "profit_pct": (profit / selling * 100) if selling > 0 else 0.0,
-        })
-    return overall
-
-
-def generate_ticket_analysis(project: models.Project, budget_rows: list[dict]) -> list[dict]:
-    """Ticket analysis: expected tickets and revenue per year and size."""
-    rates = get_rate_config(project)
-    risk_factor = rates["risk_factor_pct"] / 100.0
-
-    yearly_totals: dict[str, dict] = defaultdict(
-        lambda: {"man_hours": 0.0, "selling_price": 0.0}
-    )
-    for row in budget_rows:
-        yearly_totals[row["year"]]["man_hours"] += row["man_hours"]
-        yearly_totals[row["year"]]["selling_price"] += row["selling_price"]
-
-    ticket_rows = []
-    for year in sorted(yearly_totals):
-        year_int = int(year)
-        total_man_hours = yearly_totals[year]["man_hours"]
-        total_price = yearly_totals[year]["selling_price"]
-        base_hourly_rate = total_price / total_man_hours if total_man_hours > 0 else 0.0
-        final_hourly_rate = base_hourly_rate * (1 + risk_factor) + rates["hw_cost_per_hour"]
-
-        for size, story_points in rates["ticket_story_points"].items():
-            hours_per_ticket = story_points * rates["sp_to_hours"]
-            quota_pct = rates["ticket_quotas"].get(year_int, {}).get(size, 0.0) / 100.0
-
-            if hours_per_ticket > 0:
-                num_tickets = (total_man_hours * quota_pct) / hours_per_ticket
-            else:
-                num_tickets = 0.0
-
-            total_hours = num_tickets * hours_per_ticket
-            revenue = total_hours * final_hourly_rate
-
-            ticket_rows.append({
-                "year": year,
-                "size": size.title(),
-                "story_points": story_points,
-                "hours_per_ticket": hours_per_ticket,
-                "num_tickets": round(num_tickets, 2),
-                "total_hours": round(total_hours, 2),
-                "hourly_rate": round(final_hourly_rate, 2),
-                "revenue": round(revenue, 2),
-            })
-    return ticket_rows
-
-
-def generate_ticket_overall(ticket_rows: list[dict], cost_profit_summary: list[dict]) -> list[dict]:
-    """Per-year overall ticket revenue and profit vs. resource cost."""
-    revenue_by_year: dict[str, float] = defaultdict(float)
-    for row in ticket_rows:
-        revenue_by_year[row["year"]] += row["revenue"]
-
-    cost_by_year: dict[str, float] = defaultdict(float)
-    for row in cost_profit_summary:
-        cost_by_year[row["year"]] += row["cost"]
-
-    overall = []
-    for year in sorted(revenue_by_year):
-        revenue = revenue_by_year[year]
-        cost = cost_by_year.get(year, 0.0)
-        profit = revenue - cost
-        overall.append({
-            "year": year,
-            "revenue": revenue,
-            "cost": cost,
-            "profit": profit,
-            "profit_pct": (profit / revenue * 100) if revenue > 0 else 0.0,
-        })
-    return overall
 
 
 def _pivot_by_year(rows: list[dict], value_key: str) -> list[dict]:
@@ -262,11 +107,6 @@ def generate_resource_pivots(project: models.Project, months: list[str]) -> list
                     "ftes": get_ftes_for_month(role, month),
                 })
     return _pivot_by_year(rows, "ftes")
-
-
-def generate_budget_pivots(budget_rows: list[dict]) -> list[dict]:
-    """Per-year selling-price pivot tables for the budget plan."""
-    return _pivot_by_year(budget_rows, "selling_price")
 
 
 def compress_monthly_ftes(months: list[str], values: list[float]) -> dict:

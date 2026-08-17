@@ -1,9 +1,18 @@
 """Database engine and session management."""
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from .config import DATABASE_URL
+
+# Columns added after the initial release. create_all() only creates missing
+# tables — it never alters existing ones — so each (table, column, ddl) entry
+# here is applied with ADD COLUMN on startup when absent. DDL must use
+# constant defaults so it works on both SQLite and PostgreSQL.
+STARTUP_COLUMNS: list[tuple[str, str, str]] = [
+    ("projects", "encrypted_money", "TEXT"),
+    ("projects", "money_iv", "VARCHAR(64)"),
+]
 
 connect_args = {}
 if DATABASE_URL.startswith("sqlite"):
@@ -15,6 +24,20 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 class Base(DeclarativeBase):
     pass
+
+
+def run_startup_migrations(target_engine=None) -> None:
+    """Add any missing STARTUP_COLUMNS to existing tables. Idempotent."""
+    target = target_engine if target_engine is not None else engine
+    inspector = inspect(target)
+    tables = set(inspector.get_table_names())
+    with target.begin() as conn:
+        for table, column, ddl in STARTUP_COLUMNS:
+            if table not in tables:
+                continue
+            existing = {c["name"] for c in inspector.get_columns(table)}
+            if column not in existing:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
 
 
 def get_db():

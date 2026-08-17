@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
-from ..config import LEVELS, LOCATIONS, TICKET_SIZES
+from ..config import TICKET_SIZES
 from ..database import get_db
 from ..services import calculations
 from ..services.rate_config import get_rate_config
@@ -94,7 +94,11 @@ def validate_project(project_id: int, db: Session = Depends(get_db)):
 
 @router.get("/{project_id}/export")
 def export_project(project_id: int, db: Session = Depends(get_db)):
-    """Export a project in the desktop app's JSON format."""
+    """Export a project's non-monetary data in the desktop app's JSON format.
+
+    Money values are end-to-end encrypted; the browser merges the decrypted
+    money into this structure before offering the download.
+    """
     project = get_project_or_404(project_id, db)
     rates = get_rate_config(project)
     return {
@@ -129,13 +133,9 @@ def export_project(project_id: int, db: Session = Depends(get_db)):
             for feature in project.features
         ],
         "rate_config": {
-            "hourly_rates": rates["hourly_rates"],
-            "cost_rates": rates["cost_rates"],
             "sp_to_hours": rates["sp_to_hours"],
-            "hw_cost_per_hour": rates["hw_cost_per_hour"],
             "risk_factor_pct": rates["risk_factor_pct"],
             "ticket_sp": rates["ticket_story_points"],
-            "ticket_price": rates["ticket_prices"],
             "ticket_quota": {str(y): q for y, q in rates["ticket_quotas"].items()},
         },
     }
@@ -184,23 +184,17 @@ def import_project(data: dict, db: Session = Depends(get_db)):
                     ftes=float(alloc.get("ftes", 0.0)),
                 ))
 
+    # Monetary values in the file (hourly_rates, cost_rates, ticket_price,
+    # hw_cost_per_hour) are NOT stored in plaintext — the browser encrypts
+    # them into the project's money blob after this import returns.
     rc = data.get("rate_config", {})
     project.sp_to_hours = float(rc.get("sp_to_hours", 4.0))
-    project.hw_cost_per_hour = float(rc.get("hw_cost_per_hour", 0.0))
     project.risk_factor_pct = float(rc.get("risk_factor_pct", 0.0))
-
-    for loc in LOCATIONS:
-        rate = float(rc.get("hourly_rates", {}).get(loc, 0.0))
-        db.add(models.HourlyRate(project_id=project.id, location=loc, rate=rate))
-        for lvl in LEVELS:
-            cost = float(rc.get("cost_rates", {}).get(loc, {}).get(lvl, 0.0))
-            db.add(models.CostRate(project_id=project.id, location=loc, level=lvl, rate=cost))
 
     for size in TICKET_SIZES:
         db.add(models.TicketConfig(
             project_id=project.id, size=size,
             story_points=float(rc.get("ticket_sp", {}).get(size, 0.0)),
-            price=float(rc.get("ticket_price", {}).get(size, 0.0)),
         ))
 
     for year_str, quotas in rc.get("ticket_quota", {}).items():

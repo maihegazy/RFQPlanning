@@ -3,6 +3,7 @@ import { Link, NavLink, Navigate, Route, Routes, useParams } from 'react-router-
 import { api } from '../api'
 import type { Meta, Project } from '../types'
 import { ErrorBanner, Spinner } from '../components/ui'
+import { VaultStatusButton } from '../vault/VaultGate'
 import InfoTab from '../tabs/InfoTab'
 import ResourcesTab from '../tabs/ResourcesTab'
 import BudgetTab from '../tabs/BudgetTab'
@@ -50,9 +51,12 @@ export default function ProjectPage() {
         <Link to="/" className="text-sm text-slate-400 hover:text-indigo-400">
           ← All projects
         </Link>
-        <div className="mt-2 flex items-baseline gap-3">
-          <h1 className="text-2xl font-bold tracking-tight">{project.name}</h1>
-          <span className="text-sm text-slate-400">{project.company}</span>
+        <div className="mt-2 flex items-center justify-between gap-3">
+          <div className="flex items-baseline gap-3">
+            <h1 className="text-2xl font-bold tracking-tight">{project.name}</h1>
+            <span className="text-sm text-slate-400">{project.company}</span>
+          </div>
+          <VaultStatusButton />
         </div>
       </header>
 
@@ -82,7 +86,7 @@ export default function ProjectPage() {
           element={<ResourcesTab project={project} meta={meta} onChanged={reload} />}
         />
         <Route path="budget" element={<BudgetTab project={project} meta={meta} />} />
-        <Route path="reports" element={<ReportsTab project={project} />} />
+        <Route path="reports" element={<ReportsTab project={project} meta={meta} />} />
       </Routes>
     </div>
   )

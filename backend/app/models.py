@@ -9,6 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -32,10 +33,15 @@ class Project(Base):
     end_year: Mapped[int] = mapped_column(Integer, nullable=False)
     end_month: Mapped[int] = mapped_column(Integer, nullable=False)
 
-    # Rate-configuration conversion factors
+    # Rate-configuration conversion factors (non-monetary)
     sp_to_hours: Mapped[float] = mapped_column(Float, default=DEFAULT_SP_TO_HOURS)
     hw_cost_per_hour: Mapped[float] = mapped_column(Float, default=DEFAULT_HW_COST_PER_HOUR)
     risk_factor_pct: Mapped[float] = mapped_column(Float, default=DEFAULT_RISK_FACTOR_PCT)
+
+    # End-to-end encrypted money configuration. Ciphertext (AES-256-GCM,
+    # base64) produced in the browser; the server never holds the key.
+    encrypted_money: Mapped[str | None] = mapped_column(Text, nullable=True)
+    money_iv: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
@@ -57,6 +63,27 @@ class Project(Base):
     ticket_quotas: Mapped[list["TicketQuota"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
+
+
+class Vault(Base):
+    """Singleton key-vault record for end-to-end encrypted money data.
+
+    Stores only public KDF parameters and the data-encryption key wrapped
+    by (1) the passphrase-derived key and (2) the recovery key. None of
+    these are usable without the passphrase or recovery file, which never
+    reach the server.
+    """
+
+    __tablename__ = "vault"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kdf_salt: Mapped[str] = mapped_column(String(64), nullable=False)
+    kdf_iterations: Mapped[int] = mapped_column(Integer, nullable=False)
+    wrapped_dek_passphrase_iv: Mapped[str] = mapped_column(String(64), nullable=False)
+    wrapped_dek_passphrase: Mapped[str] = mapped_column(String(256), nullable=False)
+    wrapped_dek_recovery_iv: Mapped[str] = mapped_column(String(64), nullable=False)
+    wrapped_dek_recovery: Mapped[str] = mapped_column(String(256), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class Feature(Base):

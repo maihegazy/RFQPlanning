@@ -1,7 +1,8 @@
 import type {
-  BudgetPlan,
   Feature,
+  LegacyMoney,
   Meta,
+  MoneyBlob,
   Project,
   ProjectSummary,
   ProjectTemplate,
@@ -10,6 +11,7 @@ import type {
   Role,
   RoleInput,
   ValidationResult,
+  VaultInfo,
 } from './types'
 
 const BASE = import.meta.env.VITE_API_URL ?? ''
@@ -102,13 +104,31 @@ export const api = {
 
   getResourcePlan: (projectId: number) =>
     request<ResourcePlan>(`/api/projects/${projectId}/reports/resource-plan`),
-  getBudgetPlan: (projectId: number) =>
-    request<BudgetPlan>(`/api/projects/${projectId}/reports/budget-plan`),
 
   resourcePlanXlsxUrl: (projectId: number) =>
     `${BASE}/api/projects/${projectId}/reports/resource-plan.xlsx`,
-  budgetPlanXlsxUrl: (projectId: number) =>
-    `${BASE}/api/projects/${projectId}/reports/budget-plan.xlsx`,
+
+  // Vault & end-to-end encrypted money
+  getVault: () => request<VaultInfo>('/api/vault'),
+  createVault: (keys: {
+    kdf_salt: string
+    kdf_iterations: number
+    wrapped_dek_passphrase_iv: string
+    wrapped_dek_passphrase: string
+    wrapped_dek_recovery_iv: string
+    wrapped_dek_recovery: string
+  }) => request<VaultInfo>('/api/vault', { method: 'POST', body: JSON.stringify(keys) }),
+  getMoneyBlob: (projectId: number) =>
+    request<MoneyBlob>(`/api/projects/${projectId}/money`),
+  putMoneyBlob: (projectId: number, blob: MoneyBlob) =>
+    request<MoneyBlob>(`/api/projects/${projectId}/money`, {
+      method: 'PUT',
+      body: JSON.stringify(blob),
+    }),
+  getLegacyMoney: (projectId: number) =>
+    request<LegacyMoney>(`/api/projects/${projectId}/money/legacy`),
+  purgeLegacyMoney: (projectId: number) =>
+    request<void>(`/api/projects/${projectId}/money/purge-plaintext`, { method: 'POST' }),
 }
 
 export { ApiError }

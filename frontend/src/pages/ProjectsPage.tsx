@@ -4,10 +4,16 @@ import { api } from '../api'
 import type { ProjectSummary, ProjectTemplate } from '../types'
 import { Button, Card, ErrorBanner, EmptyState, Input, Label, Modal, Select, Spinner } from '../components/ui'
 import { MONTH_NAMES } from '../utils'
+import { downloadBlob } from '../download'
+import { useVault } from '../vault/VaultContext'
+import { VaultStatusButton } from '../vault/VaultGate'
+import { emptyMoneyConfig, type MoneyConfig } from '../money/types'
 
 export default function ProjectsPage() {
+  const vault = useVault()
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
 
@@ -31,12 +37,79 @@ export default function ProjectsPage() {
   }
 
   const handleImport = async (file: File) => {
+    setError('')
+    setNotice('')
     try {
       const data = JSON.parse(await file.text())
-      await api.importProject(data)
+      // Non-monetary parts are stored by the server; money is encrypted here
+      const project = await api.importProject(data)
+      const rc = data.rate_config ?? {}
+      const hasMoney =
+        rc.hourly_rates || rc.cost_rates || rc.ticket_price || rc.hw_cost_per_hour
+      if (hasMoney) {
+        if (vault.status === 'unlocked') {
+          const meta = await api.getMeta()
+          const base = emptyMoneyConfig(meta.locations, meta.levels, meta.ticket_sizes)
+          const money: MoneyConfig = {
+            ...base,
+            hourly_rates: { ...base.hourly_rates, ...(rc.hourly_rates ?? {}) },
+            cost_rates: Object.fromEntries(
+              meta.locations.map((loc) => [
+                loc,
+                { ...base.cost_rates[loc], ...((rc.cost_rates ?? {})[loc] ?? {}) },
+              ]),
+            ),
+            hw_cost_per_hour: Number(rc.hw_cost_per_hour ?? 0),
+            ticket_prices: { ...base.ticket_prices, ...(rc.ticket_price ?? {}) },
+          }
+          const blob = await vault.encrypt(money)
+          await api.putMoneyBlob(project.id, {
+            encrypted_money: blob.ciphertext,
+            money_iv: blob.iv,
+          })
+        } else {
+          setNotice(
+            'Project imported. The file contained money values, but the vault is locked — unlock it and re-import to bring them in encrypted.',
+          )
+        }
+      }
       load()
     } catch (e) {
       setError(`Import failed: ${(e as Error).message}`)
+    }
+  }
+
+  const handleExport = async (project: ProjectSummary) => {
+    setError('')
+    setNotice('')
+    try {
+      const data = (await api.exportProject(project.id)) as {
+        rate_config?: Record<string, unknown>
+      }
+      if (vault.status === 'unlocked') {
+        const blob = await api.getMoneyBlob(project.id)
+        if (blob.encrypted_money && blob.money_iv) {
+          const money = await vault.decrypt<MoneyConfig>({
+            iv: blob.money_iv,
+            ciphertext: blob.encrypted_money,
+          })
+          data.rate_config = {
+            ...(data.rate_config ?? {}),
+            hourly_rates: money.hourly_rates,
+            cost_rates: money.cost_rates,
+            hw_cost_per_hour: money.hw_cost_per_hour,
+            ticket_price: money.ticket_prices,
+          }
+        }
+      } else {
+        setNotice('Exported without money values (vault locked). Unlock to include them.')
+      }
+      downloadBlob(
+        new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
+        `${project.name}.json`,
+      )
+    } catch (e) {
+      setError(`Export failed: ${(e as Error).message}`)
     }
   }
 
@@ -49,7 +122,8 @@ export default function ProjectsPage() {
             Resource &amp; budget planning for RFQs
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          <VaultStatusButton />
           <input
             ref={fileInput}
             type="file"
@@ -71,6 +145,11 @@ export default function ProjectsPage() {
       {error && (
         <div className="mb-4">
           <ErrorBanner message={error} />
+        </div>
+      )}
+      {notice && (
+        <div className="mb-4 rounded-lg border border-indigo-800 bg-indigo-950/50 px-4 py-3 text-sm text-indigo-200">
+          {notice}
         </div>
       )}
 
@@ -95,9 +174,14 @@ export default function ProjectsPage() {
                     {MONTH_NAMES[p.end_month - 1]} {p.end_year}
                   </p>
                 </Link>
-                <Button variant="ghost" onClick={() => handleDelete(p)} title="Delete project">
-                  🗑
-                </Button>
+                <div className="flex flex-col gap-1">
+                  <Button variant="ghost" onClick={() => handleDelete(p)} title="Delete project">
+                    🗑
+                  </Button>
+                  <Button variant="ghost" onClick={() => handleExport(p)} title="Export as JSON">
+                    ⬇
+                  </Button>
+                </div>
               </div>
             </Card>
           ))}

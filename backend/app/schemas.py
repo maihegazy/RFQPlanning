@@ -150,48 +150,21 @@ class TicketSizeConfig(BaseModel):
 
 
 class RateConfigOut(BaseModel):
-    hourly_rates: dict[str, float]
-    cost_rates: dict[str, dict[str, float]]
+    """Non-monetary configuration. Money lives in the encrypted blob."""
+
     sp_to_hours: float
-    hw_cost_per_hour: float
     risk_factor_pct: float
     ticket_story_points: dict[str, float]
-    ticket_prices: dict[str, float]
     ticket_quotas: dict[int, dict[str, float]]
 
 
 class RateConfigUpdate(BaseModel):
-    hourly_rates: Optional[dict[str, float]] = None
-    cost_rates: Optional[dict[str, dict[str, float]]] = None
     sp_to_hours: Optional[float] = Field(None, ge=0.0)
-    hw_cost_per_hour: Optional[float] = Field(None, ge=0.0)
     risk_factor_pct: Optional[float] = Field(None, ge=0.0)
     ticket_story_points: Optional[dict[str, float]] = None
-    ticket_prices: Optional[dict[str, float]] = None
     ticket_quotas: Optional[dict[int, dict[str, float]]] = None
 
-    @field_validator("hourly_rates")
-    @classmethod
-    def valid_hourly_locations(cls, v):
-        if v is not None:
-            for loc in v:
-                if loc not in LOCATIONS:
-                    raise ValueError(f"Invalid location: {loc}")
-        return v
-
-    @field_validator("cost_rates")
-    @classmethod
-    def valid_cost_keys(cls, v):
-        if v is not None:
-            for loc, levels in v.items():
-                if loc not in LOCATIONS:
-                    raise ValueError(f"Invalid location: {loc}")
-                for lvl in levels:
-                    if lvl not in LEVELS:
-                        raise ValueError(f"Invalid level: {lvl}")
-        return v
-
-    @field_validator("ticket_story_points", "ticket_prices")
+    @field_validator("ticket_story_points")
     @classmethod
     def valid_ticket_sizes(cls, v):
         if v is not None:
@@ -211,45 +184,24 @@ class RateConfigUpdate(BaseModel):
         return v
 
 
+class LegacyMoneyOut(BaseModel):
+    """Plaintext money read once from pre-encryption tables for migration."""
+
+    hourly_rates: dict[str, float]
+    cost_rates: dict[str, dict[str, float]]
+    hw_cost_per_hour: float
+    ticket_prices: dict[str, float]
+    has_data: bool
+
+
 # ---------------------------------------------------------------------------
 # Reports
 # ---------------------------------------------------------------------------
-
-class CostProfitRow(BaseModel):
-    year: str
-    location: str
-    man_hours: float
-    cost: float
-    selling_price: float
-    hourly_cost: float
-    hourly_rate: float
-    profit: float
-    profit_pct: float
-
-
-class TicketAnalysisRow(BaseModel):
-    year: str
-    size: str
-    story_points: float
-    hours_per_ticket: float
-    num_tickets: float
-    total_hours: float
-    hourly_rate: float
-    revenue: float
-
 
 class PivotTable(BaseModel):
     year: str
     columns: list[str]
     rows: list[dict]
-
-
-class BudgetPlanOut(BaseModel):
-    cost_profit_summary: list[CostProfitRow]
-    cost_profit_overall: list[dict]
-    ticket_analysis: list[TicketAnalysisRow]
-    ticket_overall: list[dict]
-    yearly_pivots: list[PivotTable]
 
 
 class ResourcePlanOut(BaseModel):
@@ -259,6 +211,43 @@ class ResourcePlanOut(BaseModel):
 class ValidationResult(BaseModel):
     valid: bool
     errors: list[str]
+
+
+# ---------------------------------------------------------------------------
+# Vault (end-to-end encrypted money data)
+# ---------------------------------------------------------------------------
+
+class VaultKeys(BaseModel):
+    kdf_salt: str = Field(..., max_length=64)
+    kdf_iterations: int = Field(..., ge=100_000, le=10_000_000)
+    wrapped_dek_passphrase_iv: str = Field(..., max_length=64)
+    wrapped_dek_passphrase: str = Field(..., max_length=256)
+    wrapped_dek_recovery_iv: str = Field(..., max_length=64)
+    wrapped_dek_recovery: str = Field(..., max_length=256)
+
+
+class VaultOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    exists: bool = True
+    kdf_salt: str
+    kdf_iterations: int
+    wrapped_dek_passphrase_iv: str
+    wrapped_dek_passphrase: str
+    wrapped_dek_recovery_iv: str
+    wrapped_dek_recovery: str
+
+
+class VaultPassphraseUpdate(BaseModel):
+    kdf_salt: str = Field(..., max_length=64)
+    kdf_iterations: int = Field(..., ge=100_000, le=10_000_000)
+    wrapped_dek_passphrase_iv: str = Field(..., max_length=64)
+    wrapped_dek_passphrase: str = Field(..., max_length=256)
+
+
+class MoneyBlob(BaseModel):
+    encrypted_money: Optional[str] = None
+    money_iv: Optional[str] = Field(None, max_length=64)
 
 
 class GridRoleUpdate(BaseModel):

@@ -1,102 +1,152 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api'
-import type { BudgetPlan, PivotTable, Project, ResourcePlan } from '../types'
+import type { Meta, PivotTable, Project, RateConfig, ResourcePlan } from '../types'
 import { Button, Card, ErrorBanner, Spinner } from '../components/ui'
 import { formatEuro, formatNumber } from '../utils'
+import { useVault } from '../vault/VaultContext'
+import { VaultPrompt } from '../vault/VaultGate'
+import { computeBudgetPlan } from '../money/engine'
+import { downloadBudgetWorkbook } from '../money/excelBudget'
+import { emptyMoneyConfig, type BudgetPlan, type MoneyConfig } from '../money/types'
 
-export default function ReportsTab({ project }: { project: Project }) {
-  const [budget, setBudget] = useState<BudgetPlan | null>(null)
+export default function ReportsTab({ project, meta }: { project: Project; meta: Meta }) {
+  const vault = useVault()
   const [resources, setResources] = useState<ResourcePlan | null>(null)
+  const [rates, setRates] = useState<RateConfig | null>(null)
+  const [money, setMoney] = useState<MoneyConfig | null>(null)
+  const [budget, setBudget] = useState<BudgetPlan | null>(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    setBudget(null)
     setResources(null)
     setError('')
-    Promise.all([api.getBudgetPlan(project.id), api.getResourcePlan(project.id)])
-      .then(([b, r]) => {
-        setBudget(b)
+    Promise.all([api.getResourcePlan(project.id), api.getRates(project.id)])
+      .then(([r, rc]) => {
         setResources(r)
+        setRates(rc)
       })
       .catch((e) => setError(e.message))
   }, [project.id])
 
+  // Money sections are computed locally after decrypting the blob
+  const computeMoney = useCallback(async () => {
+    if (vault.status !== 'unlocked' || !rates) return
+    try {
+      const blob = await api.getMoneyBlob(project.id)
+      const config =
+        blob.encrypted_money && blob.money_iv
+          ? await vault.decrypt<MoneyConfig>({
+              iv: blob.money_iv,
+              ciphertext: blob.encrypted_money,
+            })
+          : emptyMoneyConfig(meta.locations, meta.levels, meta.ticket_sizes)
+      setMoney(config)
+      setBudget(computeBudgetPlan(project, config, rates))
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }, [project, rates, vault, meta])
+
+  useEffect(() => {
+    setMoney(null)
+    setBudget(null)
+    computeMoney()
+  }, [computeMoney])
+
   if (error) return <ErrorBanner message={error} />
-  if (!budget || !resources) return <Spinner />
+  if (!resources || !rates) return <Spinner />
+
+  const unlocked = vault.status === 'unlocked'
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap gap-2">
-        <a href={api.budgetPlanXlsxUrl(project.id)} download>
-          <Button>⬇ Download Budget Plan (Excel)</Button>
-        </a>
+        {unlocked && budget && money && (
+          <Button onClick={() => downloadBudgetWorkbook(project, money, rates, budget)}>
+            ⬇ Download Budget Plan (Excel)
+          </Button>
+        )}
         <a href={api.resourcePlanXlsxUrl(project.id)} download>
           <Button variant="secondary">⬇ Download Resource Plan (Excel)</Button>
         </a>
       </div>
 
-      <Card title="Cost-Profit Summary by Year and Location">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
-                <th className="pb-2 pr-4">Year</th>
-                <th className="pb-2 pr-4">Location</th>
-                <th className="pb-2 pr-4 text-right">Man-Hours</th>
-                <th className="pb-2 pr-4 text-right">Cost</th>
-                <th className="pb-2 pr-4 text-right">Selling Price</th>
-                <th className="pb-2 pr-4 text-right">Hourly Cost</th>
-                <th className="pb-2 pr-4 text-right">Hourly Rate</th>
-                <th className="pb-2 pr-4 text-right">Profit</th>
-                <th className="pb-2 text-right">Profit %</th>
-              </tr>
-            </thead>
-            <tbody>
-              {budget.cost_profit_overall.map((overall) => (
-                <YearGroup
-                  key={overall.year}
-                  year={overall.year}
-                  rows={budget.cost_profit_summary.filter((r) => r.year === overall.year)}
-                  overall={overall}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+      {!unlocked ? (
+        <VaultPrompt>
+          Cost-profit analysis, ticket revenue and budget pivots are computed from
+          end-to-end encrypted money data. Unlock the vault to view them — the
+          resource plan below is available without unlocking.
+        </VaultPrompt>
+      ) : budget === null ? (
+        <Spinner />
+      ) : (
+        <>
+          <Card title="Cost-Profit Summary by Year and Location 🔐">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
+                    <th className="pb-2 pr-4">Year</th>
+                    <th className="pb-2 pr-4">Location</th>
+                    <th className="pb-2 pr-4 text-right">Man-Hours</th>
+                    <th className="pb-2 pr-4 text-right">Cost</th>
+                    <th className="pb-2 pr-4 text-right">Selling Price</th>
+                    <th className="pb-2 pr-4 text-right">Hourly Cost</th>
+                    <th className="pb-2 pr-4 text-right">Hourly Rate</th>
+                    <th className="pb-2 pr-4 text-right">Profit</th>
+                    <th className="pb-2 text-right">Profit %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {budget.cost_profit_overall.map((overall) => (
+                    <YearGroup
+                      key={overall.year}
+                      year={overall.year}
+                      rows={budget.cost_profit_summary.filter((r) => r.year === overall.year)}
+                      overall={overall}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
 
-      <Card title="Ticket Analysis">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
-                <th className="pb-2 pr-4">Year</th>
-                <th className="pb-2 pr-4">Size</th>
-                <th className="pb-2 pr-4 text-right">Story Points</th>
-                <th className="pb-2 pr-4 text-right">Hours/Ticket</th>
-                <th className="pb-2 pr-4 text-right"># Tickets</th>
-                <th className="pb-2 pr-4 text-right">Total Hours</th>
-                <th className="pb-2 pr-4 text-right">Hourly Rate</th>
-                <th className="pb-2 text-right">Revenue</th>
-              </tr>
-            </thead>
-            <tbody>
-              {budget.ticket_overall.map((overall) => {
-                const rows = budget.ticket_analysis.filter((r) => r.year === overall.year)
-                return (
-                  <TicketYearGroup key={overall.year} rows={rows} overall={overall} />
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+          <Card title="Ticket Analysis 🔐">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
+                    <th className="pb-2 pr-4">Year</th>
+                    <th className="pb-2 pr-4">Size</th>
+                    <th className="pb-2 pr-4 text-right">Story Points</th>
+                    <th className="pb-2 pr-4 text-right">Hours/Ticket</th>
+                    <th className="pb-2 pr-4 text-right"># Tickets</th>
+                    <th className="pb-2 pr-4 text-right">Total Hours</th>
+                    <th className="pb-2 pr-4 text-right">Hourly Rate</th>
+                    <th className="pb-2 text-right">Revenue</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {budget.ticket_overall.map((overall) => (
+                    <TicketYearGroup
+                      key={overall.year}
+                      rows={budget.ticket_analysis.filter((r) => r.year === overall.year)}
+                      overall={overall}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
 
-      <PivotSection
-        title="Budget Plan — Selling Price by Month"
-        pivots={budget.yearly_pivots}
-        currency
-      />
+          <PivotSection
+            title="Budget Plan — Selling Price by Month 🔐"
+            pivots={budget.yearly_pivots}
+            currency
+          />
+        </>
+      )}
+
       <PivotSection
         title="Resource Plan — FTEs by Month"
         pivots={resources.yearly_pivots}
