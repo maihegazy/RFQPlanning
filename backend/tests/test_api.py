@@ -7,8 +7,9 @@ suite (frontend/src/money/engine.test.ts).
 """
 
 import pytest
+from sqlalchemy import create_engine, inspect
 
-from app.database import engine, run_startup_migrations
+from app.database import engine, run_migrations
 
 
 @pytest.fixture(scope="module")
@@ -23,9 +24,26 @@ def project_id(client):
 
 
 def test_startup_migrations_idempotent():
-    # Running the column migrations repeatedly must be a no-op
-    run_startup_migrations(engine)
-    run_startup_migrations(engine)
+    # Running versioned migrations repeatedly must be a no-op
+    run_migrations(engine)
+    run_migrations(engine)
+
+
+def test_migrations_create_fresh_database(tmp_path):
+    fresh_engine = create_engine(f"sqlite:///{tmp_path / 'fresh.db'}")
+    try:
+        run_migrations(fresh_engine)
+        tables = set(inspect(fresh_engine).get_table_names())
+        assert {
+            "projects",
+            "features",
+            "roles",
+            "allocation_periods",
+            "vault",
+            "alembic_version",
+        } <= tables
+    finally:
+        fresh_engine.dispose()
 
 
 def test_meta(client):
