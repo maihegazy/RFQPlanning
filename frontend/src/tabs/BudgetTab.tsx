@@ -90,7 +90,18 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
   const quotaFor = (year: number, size: string): number =>
     rates.ticket_quotas[String(year)]?.[size] ?? 0
 
+  const quotaTotal = (year: number): number =>
+    meta.ticket_sizes.reduce((s, size) => s + quotaFor(year, size), 0)
+
+  const quotaErrors = years
+    .filter((y) => quotaTotal(y) > 100)
+    .map((y) => `Ticket quotas for ${y} sum to ${quotaTotal(y)}% — max is 100% per year`)
+
   const save = async () => {
+    if (quotaErrors.length > 0) {
+      setError(quotaErrors.join('. '))
+      return
+    }
     setSaving(true)
     setError('')
     try {
@@ -334,13 +345,18 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
                         min={0}
                         max={100}
                         step={1}
-                        className="w-24"
+                        className={`w-24 ${
+                          quotaTotal(y) > 100 ? 'border-rose-600 focus:border-rose-500 focus:ring-rose-500' : ''
+                        }`}
                         value={quotaFor(y, size)}
                         onChange={(e) =>
                           editRates((r) => {
                             const key = String(y)
                             r.ticket_quotas[key] = r.ticket_quotas[key] ?? {}
-                            r.ticket_quotas[key][size] = Number(e.target.value)
+                            r.ticket_quotas[key][size] = Math.max(
+                              0,
+                              Math.min(100, Number(e.target.value)),
+                            )
                           })
                         }
                       />
@@ -348,9 +364,34 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
                   ))}
                 </tr>
               ))}
+              <tr className="border-t border-slate-700 text-xs font-semibold">
+                <td className="py-2 pr-4 text-slate-400" colSpan={3}>
+                  Total per year (max 100%)
+                </td>
+                {years.map((y) => {
+                  const total = quotaTotal(y)
+                  return (
+                    <td
+                      key={y}
+                      className={`py-2 pr-4 ${
+                        total > 100 ? 'text-rose-400' : 'text-slate-300'
+                      }`}
+                    >
+                      {total}%{total > 100 && ' ⚠'}
+                    </td>
+                  )
+                })}
+              </tr>
             </tbody>
           </table>
         </div>
+        {quotaErrors.length > 0 && (
+          <div className="mt-3 rounded-lg border border-rose-800 bg-rose-950/50 px-4 py-2 text-sm text-rose-300">
+            {quotaErrors.map((e, i) => (
+              <div key={i}>{e}</div>
+            ))}
+          </div>
+        )}
         <p className="mt-3 text-xs text-slate-500">
           Quota = percentage of the year's total man-hours expected to be delivered as
           tickets of this size. Fields marked 🔐 are end-to-end encrypted.
@@ -358,7 +399,7 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
       </Card>
 
       <div className="flex items-center gap-3">
-        <Button onClick={save} disabled={saving}>
+        <Button onClick={save} disabled={saving || quotaErrors.length > 0}>
           {saving ? 'Saving…' : 'Save Budget Configuration'}
         </Button>
         {saved && <span className="text-sm text-emerald-400">Saved ✓ {money ? '(money encrypted)' : ''}</span>}

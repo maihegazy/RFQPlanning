@@ -197,4 +197,19 @@ def validate_project(project: models.Project) -> list[str]:
                             f"{role_prefix}: Overlapping periods: "
                             f"{current.end_month} and {nxt.start_month}"
                         )
+
+    # Ticket quotas: per-year totals cannot exceed 100% of man-hours
+    quotas_by_year: dict[int, float] = {}
+    for tq in project.ticket_quotas:
+        if tq.quota_pct < 0 or tq.quota_pct > 100:
+            errors.append(
+                f"Ticket quota for {tq.size} in {tq.year} must be between 0 and 100%"
+            )
+        quotas_by_year[tq.year] = quotas_by_year.get(tq.year, 0.0) + tq.quota_pct
+    for year, total in sorted(quotas_by_year.items()):
+        if total > 100:
+            errors.append(
+                f"Ticket quotas for {year} sum to {total:g}% — "
+                "the total per year cannot exceed 100%"
+            )
     return errors

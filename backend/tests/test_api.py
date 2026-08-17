@@ -115,6 +115,43 @@ def test_rate_config_non_monetary(client, project_id):
     assert "ticket_prices" not in data
 
 
+def test_ticket_quota_validation(client, project_id):
+    # Per-year total over 100% rejected
+    resp = client.put(f"/api/projects/{project_id}/rates", json={
+        "ticket_quotas": {"2026": {"small": 50, "medium": 40, "large": 20}},
+    })
+    assert resp.status_code == 422
+    assert "cannot exceed 100%" in resp.text
+
+    # Individual quota over 100% rejected
+    resp = client.put(f"/api/projects/{project_id}/rates", json={
+        "ticket_quotas": {"2026": {"small": 125, "medium": 0, "large": 0}},
+    })
+    assert resp.status_code == 422
+
+    # Negative quota rejected
+    resp = client.put(f"/api/projects/{project_id}/rates", json={
+        "ticket_quotas": {"2026": {"small": -5, "medium": 0, "large": 0}},
+    })
+    assert resp.status_code == 422
+
+    # Exactly 100% accepted, and stored data passes project validation
+    resp = client.put(f"/api/projects/{project_id}/rates", json={
+        "ticket_quotas": {"2026": {"small": 50, "medium": 30, "large": 20},
+                          "2027": {"small": 15, "medium": 25, "large": 20}},
+    })
+    assert resp.status_code == 200, resp.text
+    resp = client.get(f"/api/projects/{project_id}/validate")
+    assert not any("quota" in e.lower() for e in resp.json()["errors"])
+
+    # Restore the values later tests rely on
+    resp = client.put(f"/api/projects/{project_id}/rates", json={
+        "ticket_quotas": {"2026": {"small": 20, "medium": 30, "large": 10},
+                          "2027": {"small": 15, "medium": 25, "large": 20}},
+    })
+    assert resp.status_code == 200
+
+
 def test_resource_plan(client, project_id):
     resp = client.get(f"/api/projects/{project_id}/reports/resource-plan")
     assert resp.status_code == 200
