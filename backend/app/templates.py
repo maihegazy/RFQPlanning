@@ -82,3 +82,44 @@ TEMPLATES = [
 
 def get_template(template_id: str) -> dict | None:
     return next((t for t in TEMPLATES if t["id"] == template_id), None)
+
+
+def normalize_roles(feature_def: dict) -> list[dict]:
+    """Roles of a template feature as dicts (built-ins store tuples)."""
+    roles = []
+    for role in feature_def["roles"]:
+        if isinstance(role, dict):
+            roles.append(role)
+        else:
+            name, location, level, ftes = role
+            roles.append({"name": name, "location": location,
+                          "level": level, "ftes": ftes})
+    return roles
+
+
+def resolve_template(db, template_id: str) -> dict | None:
+    """Resolve a built-in ('basic-software') or custom ('custom-<id>')
+    template to {"features": [{"name", "roles": [dict, ...]}]}."""
+    import json
+
+    from . import models
+
+    if template_id.startswith("custom-"):
+        try:
+            custom_id = int(template_id.removeprefix("custom-"))
+        except ValueError:
+            return None
+        record = db.get(models.CustomTemplate, custom_id)
+        if record is None:
+            return None
+        return {"features": json.loads(record.features_json)}
+
+    template = get_template(template_id)
+    if template is None:
+        return None
+    return {
+        "features": [
+            {"name": f["name"], "roles": normalize_roles(f)}
+            for f in template["features"]
+        ],
+    }

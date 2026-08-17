@@ -78,6 +78,19 @@ class Project(Base):
     )
 
 
+class CustomTemplate(Base):
+    """User-defined project template (features/roles snapshot, no money)."""
+
+    __tablename__ = "custom_templates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(String(1000), default="")
+    # JSON: [{"name": str, "roles": [{"name","location","level","ftes"}]}]
+    features_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class Vault(Base):
     """Singleton key-vault record for end-to-end encrypted money data.
 

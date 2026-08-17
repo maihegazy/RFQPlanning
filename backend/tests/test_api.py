@@ -285,6 +285,58 @@ def test_templates(client):
     assert resp.json()["valid"] is True
 
 
+def test_save_as_template(client, project_id):
+    # Snapshot the Test RFQ project (ADAS feature: fixed Dev + variable Architect)
+    resp = client.post(f"/api/projects/{project_id}/save-as-template", json={
+        "name": "My ADAS Template", "description": "Standard ADAS staffing",
+    })
+    assert resp.status_code == 201, resp.text
+    template = resp.json()
+    assert template["custom"] is True
+    assert template["id"].startswith("custom-")
+    adas = template["features"][0]
+    assert adas["name"] == "ADAS"
+    roles = {r["name"]: r for r in adas["roles"]}
+    assert roles["Developer"]["ftes"] == 1.0
+    # Architect: 0.5 for 6 months + 1.0 for 12 of 18 months -> avg 15/18 = 0.8
+    assert roles["Architect"]["ftes"] == pytest.approx(0.8)
+
+    # Appears in the template list after the built-ins
+    templates = client.get("/api/templates").json()
+    ids = [t["id"] for t in templates]
+    assert ids[:3] == ["basic-software", "application-software", "safety"]
+    assert template["id"] in ids
+    listed = next(t for t in templates if t["id"] == template["id"])
+    assert listed["description"] == "Standard ADAS staffing"
+
+    # Create a project from the custom template
+    resp = client.post("/api/projects", json={
+        "name": "From Custom", "company": "V",
+        "start_year": 2028, "start_month": 1, "end_year": 2028, "end_month": 12,
+        "template_id": template["id"],
+    })
+    assert resp.status_code == 201, resp.text
+    project = resp.json()
+    assert [f["name"] for f in project["features"]] == ["ADAS"]
+    new_roles = {r["name"]: r for r in project["features"][0]["roles"]}
+    assert new_roles["Architect"]["ftes"] == pytest.approx(0.8)
+    assert new_roles["Architect"]["use_advanced_allocation"] is False
+    client.delete(f"/api/projects/{project['id']}")
+
+    # Unknown custom template rejected
+    resp = client.post("/api/projects", json={
+        "name": "X", "company": "Y",
+        "start_year": 2028, "start_month": 1, "end_year": 2028, "end_month": 12,
+        "template_id": "custom-999999",
+    })
+    assert resp.status_code == 422
+
+    # Built-ins cannot be deleted; customs can
+    assert client.delete("/api/templates/basic-software").status_code == 403
+    assert client.delete(f"/api/templates/{template['id']}").status_code == 204
+    assert template["id"] not in [t["id"] for t in client.get("/api/templates").json()]
+
+
 def test_validation(client):
     resp = client.post("/api/projects", json={
         "name": "Empty", "company": "C",

@@ -117,6 +117,7 @@ export interface ProjectTemplate {
   id: string
   name: string
   description: string
+  custom: boolean
   features: TemplateFeature[]
 }
 
