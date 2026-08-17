@@ -24,6 +24,13 @@ export function monthRange(start: string, end: string): string[] {
   return months
 }
 
+export function nextMonth(month: string): string {
+  const [year, monthNumber] = month.split('-').map(Number)
+  return monthNumber === 12
+    ? formatMonth(year + 1, 1)
+    : formatMonth(year, monthNumber + 1)
+}
+
 export function formatNumber(value: unknown, decimals = 2): string {
   if (typeof value !== 'number') return String(value ?? '')
   return value.toLocaleString('en-US', {

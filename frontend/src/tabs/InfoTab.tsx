@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '../api'
 import type { Project, ValidationResult } from '../types'
 import { Button, Card, ErrorBanner, Input, Label, Select } from '../components/ui'
@@ -24,6 +24,21 @@ export default function InfoTab({
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
   const [validation, setValidation] = useState<ValidationResult | null>(null)
+
+  useEffect(() => {
+    setName(project.name)
+    setCompany(project.company)
+    setStartYear(project.start_year)
+    setStartMonth(project.start_month)
+    setEndYear(project.end_year)
+    setEndMonth(project.end_month)
+    setStatus(project.status)
+    setWinProb(project.win_probability_pct)
+    setLostReason(project.lost_reason ?? '')
+    setError('')
+    setSaved(false)
+    setValidation(null)
+  }, [project])
 
   const save = async () => {
     setSaving(true)

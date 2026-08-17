@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { api } from '../api'
 import type { AllocationPeriod, Feature, Meta, Project, Role } from '../types'
 import { Button, ErrorBanner, Input, Label, Modal, Select } from '../components/ui'
-import { formatMonth, monthRange } from '../utils'
+import { formatMonth, monthRange, nextMonth } from '../utils'
 
 export default function RoleModal({
   project,
@@ -50,10 +50,11 @@ export default function RoleModal({
 
   const addPeriod = () => {
     const last = allocations[allocations.length - 1]
+    if (last && last.end_month >= projectEnd) return
     setAllocations([
       ...allocations,
       {
-        start_month: last ? last.end_month : projectStart,
+        start_month: last ? nextMonth(last.end_month) : projectStart,
         end_month: projectEnd,
         ftes: 0.5,
       },
@@ -231,7 +232,11 @@ export default function RoleModal({
                   </Button>
                 </div>
               ))}
-              <Button variant="secondary" onClick={addPeriod}>
+              <Button
+                variant="secondary"
+                onClick={addPeriod}
+                disabled={allocations[allocations.length - 1]?.end_month >= projectEnd}
+              >
                 + Add Period
               </Button>
             </div>
