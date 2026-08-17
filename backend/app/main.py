@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import CORS_ORIGINS
 from .database import Base, engine, run_startup_migrations
-from .routers import features, meta, projects, rates, reports, vault
+from .routers import features, meta, portfolio, projects, rates, reports, vault
 
 
 @asynccontextmanager
@@ -38,3 +38,4 @@ app.include_router(features.router)
 app.include_router(rates.router)
 app.include_router(reports.router)
 app.include_router(vault.router)
+app.include_router(portfolio.router)

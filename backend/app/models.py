@@ -43,6 +43,19 @@ class Project(Base):
     encrypted_money: Mapped[str | None] = mapped_column(Text, nullable=True)
     money_iv: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
+    # RFQ lifecycle
+    status: Mapped[str] = mapped_column(String(16), default="draft", server_default="draft")
+    win_probability_pct: Mapped[float] = mapped_column(Float, default=50.0, server_default="50")
+    lost_reason: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+
+    # Scenario linkage: a scenario is a full project row pointing at its base
+    base_project_id: Mapped[int | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    is_winning_scenario: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0"
+    )
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow

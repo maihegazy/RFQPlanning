@@ -296,6 +296,119 @@ def test_validation(client):
     assert "At least one feature is required" in resp.json()["errors"]
 
 
+def test_lifecycle_status(client, project_id):
+    # Defaults
+    resp = client.get(f"/api/projects/{project_id}")
+    data = resp.json()
+    assert data["status"] == "draft"
+    assert data["win_probability_pct"] == 50.0
+
+    # Transition to quoted with a win probability
+    resp = client.put(f"/api/projects/{project_id}", json={
+        "status": "quoted", "win_probability_pct": 70,
+    })
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "quoted"
+
+    # Invalid status rejected
+    resp = client.put(f"/api/projects/{project_id}", json={"status": "maybe"})
+    assert resp.status_code == 422
+
+    # Lost with reason
+    resp = client.put(f"/api/projects/{project_id}", json={
+        "status": "lost", "lost_reason": "Competitor undercut on price",
+    })
+    assert resp.json()["lost_reason"] == "Competitor undercut on price"
+
+    # Status filter on list
+    assert all(p["status"] == "lost" for p in
+               client.get("/api/projects?status=lost").json())
+    assert client.get("/api/projects?status=won").json() == []
+
+    # Back to quoted for later tests
+    client.put(f"/api/projects/{project_id}", json={"status": "quoted"})
+
+
+def test_scenarios(client, project_id):
+    # Clone as scenario
+    resp = client.post(f"/api/projects/{project_id}/clone", json={
+        "name": "Scenario B (offshore-heavy)", "as_scenario": True,
+    })
+    assert resp.status_code == 201, resp.text
+    scenario = resp.json()
+    assert scenario["base_project_id"] == project_id
+    assert len(scenario["features"]) == 1
+    assert len(scenario["features"][0]["roles"]) == 2
+    # Deep-copied allocations
+    arch = next(r for r in scenario["features"][0]["roles"] if r["name"] == "Architect")
+    assert len(arch["allocations"]) == 2
+
+    # Scenario family listing: base first, then scenario
+    family = client.get(f"/api/projects/{project_id}/scenarios").json()
+    assert [p["id"] for p in family] == [project_id, scenario["id"]]
+    # Same family when asked from the scenario side
+    family2 = client.get(f"/api/projects/{scenario['id']}/scenarios").json()
+    assert [p["id"] for p in family2] == [p["id"] for p in family]
+
+    # Cloning a scenario attaches to the same base
+    resp = client.post(f"/api/projects/{scenario['id']}/clone", json={
+        "name": "Scenario C", "as_scenario": True,
+    })
+    assert resp.json()["base_project_id"] == project_id
+
+    # Scenario resource plan identical to base (deep copy)
+    base_plan = client.get(f"/api/projects/{project_id}/reports/resource-plan").json()
+    scen_plan = client.get(f"/api/projects/{scenario['id']}/reports/resource-plan").json()
+    assert base_plan == scen_plan
+
+    # Money blob copied verbatim
+    base_money = client.get(f"/api/projects/{project_id}/money").json()
+    scen_money = client.get(f"/api/projects/{scenario['id']}/money").json()
+    assert base_money == scen_money
+
+    # Promote exclusivity
+    resp = client.post(f"/api/projects/{scenario['id']}/promote")
+    assert resp.json()["is_winning_scenario"] is True
+    family = client.get(f"/api/projects/{project_id}/scenarios").json()
+    winners = [p["id"] for p in family if p["is_winning_scenario"]]
+    assert winners == [scenario["id"]]
+
+    # Scenarios hidden from the default project list
+    ids = [p["id"] for p in client.get("/api/projects").json()]
+    assert scenario["id"] not in ids
+    ids_all = [p["id"] for p in
+               client.get("/api/projects?include_scenarios=true").json()]
+    assert scenario["id"] in ids_all
+
+    # Deleting the base cascades its scenarios — use plain duplicate instead
+    resp = client.post(f"/api/projects/{project_id}/clone", json={
+        "name": "Plain Copy", "as_scenario": False,
+    })
+    assert resp.json()["base_project_id"] is None
+    client.delete(f"/api/projects/{resp.json()['id']}")
+
+
+def test_portfolio_capacity(client, project_id):
+    resp = client.get("/api/portfolio/capacity")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["locations"] == ["BCC", "HCC", "MCC"]
+    # project_id spans 2026-01..2027-06 with BCC 1.0 + HCC 0.5/1.0
+    assert "2026-01" in data["months"]
+    assert data["cells"]["2026-01"]["BCC"] >= 1.0
+    assert data["cells"]["2026-01"]["HCC"] >= 0.5
+    # Scenario children are not double-counted: capacity for 2026-01 BCC
+    # would be >= 2.0 if the scenario from test_scenarios were included
+    bcc_contributions = data["cells"]["2026-01"]["BCC"]
+    grid_project_bcc = 0.5 + 0.6  # from test_resource_grid_update (2026-01)
+    templated_bcc = 24.0  # basic-software template: 24 BCC roles at 1.0 FTE
+    assert bcc_contributions == pytest.approx(1.0 + grid_project_bcc + templated_bcc)
+
+    # Status filter
+    resp = client.get("/api/portfolio/capacity?statuses=won")
+    assert resp.json()["months"] == []
+
+
 def test_export_import_roundtrip(client, project_id):
     resp = client.get(f"/api/projects/{project_id}/export")
     assert resp.status_code == 200

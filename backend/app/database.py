@@ -12,6 +12,11 @@ from .config import DATABASE_URL
 STARTUP_COLUMNS: list[tuple[str, str, str]] = [
     ("projects", "encrypted_money", "TEXT"),
     ("projects", "money_iv", "VARCHAR(64)"),
+    ("projects", "status", "VARCHAR(16) NOT NULL DEFAULT 'draft'"),
+    ("projects", "win_probability_pct", "FLOAT NOT NULL DEFAULT 50"),
+    ("projects", "lost_reason", "VARCHAR(1000)"),
+    ("projects", "base_project_id", "INTEGER"),
+    ("projects", "is_winning_scenario", "BOOLEAN NOT NULL DEFAULT 0"),
 ]
 
 connect_args = {}

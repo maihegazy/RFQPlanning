@@ -4,9 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
-from ..config import TICKET_SIZES
+from ..config import PROJECT_STATUSES, TICKET_SIZES
 from ..database import get_db
-from ..services import calculations
+from ..services import calculations, cloning
 from ..services.rate_config import get_rate_config
 from ..templates import get_template
 
@@ -21,8 +21,14 @@ def get_project_or_404(project_id: int, db: Session) -> models.Project:
 
 
 @router.get("", response_model=list[schemas.ProjectSummary])
-def list_projects(db: Session = Depends(get_db)):
-    return db.query(models.Project).order_by(models.Project.updated_at.desc()).all()
+def list_projects(status: str | None = None, include_scenarios: bool = False,
+                  db: Session = Depends(get_db)):
+    query = db.query(models.Project)
+    if not include_scenarios:
+        query = query.filter(models.Project.base_project_id.is_(None))
+    if status is not None:
+        query = query.filter(models.Project.status == status)
+    return query.order_by(models.Project.updated_at.desc()).all()
 
 
 @router.post("", response_model=schemas.ProjectOut, status_code=201)
@@ -81,6 +87,54 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
     db.commit()
 
 
+@router.post("/{project_id}/clone", response_model=schemas.ProjectOut, status_code=201)
+def clone_project_endpoint(project_id: int, data: schemas.CloneRequest,
+                           db: Session = Depends(get_db)):
+    """Duplicate a project. as_scenario=true links the copy to the base
+    project (scenarios of a scenario attach to the same base)."""
+    source = get_project_or_404(project_id, db)
+    base_id = None
+    if data.as_scenario:
+        base_id = source.base_project_id or source.id
+    clone = cloning.clone_project(db, source, data.name, base_id)
+    db.commit()
+    db.refresh(clone)
+    return clone
+
+
+@router.get("/{project_id}/scenarios", response_model=list[schemas.ProjectSummary])
+def list_scenarios(project_id: int, db: Session = Depends(get_db)):
+    """The scenario family of a project: the base first, then scenarios."""
+    project = get_project_or_404(project_id, db)
+    base_id = project.base_project_id or project.id
+    base = db.get(models.Project, base_id)
+    scenarios = (
+        db.query(models.Project)
+        .filter(models.Project.base_project_id == base_id)
+        .order_by(models.Project.id)
+        .all()
+    )
+    return ([base] if base else []) + scenarios
+
+
+@router.post("/{project_id}/promote", response_model=schemas.ProjectSummary)
+def promote_scenario(project_id: int, db: Session = Depends(get_db)):
+    """Mark a scenario as the winning one (exclusive among its family)."""
+    project = get_project_or_404(project_id, db)
+    base_id = project.base_project_id or project.id
+    family = (
+        db.query(models.Project)
+        .filter((models.Project.id == base_id) |
+                (models.Project.base_project_id == base_id))
+        .all()
+    )
+    for p in family:
+        p.is_winning_scenario = (p.id == project.id)
+    db.commit()
+    db.refresh(project)
+    return project
+
+
 @router.get("/{project_id}/validate", response_model=schemas.ValidationResult)
 def validate_project(project_id: int, db: Session = Depends(get_db)):
     project = get_project_or_404(project_id, db)
@@ -104,6 +158,9 @@ def export_project(project_id: int, db: Session = Depends(get_db)):
     return {
         "project_name": project.name,
         "company_name": project.company,
+        "status": project.status,
+        "win_probability_pct": project.win_probability_pct,
+        "lost_reason": project.lost_reason,
         "dates": [
             str(project.start_year), str(project.start_month),
             str(project.end_year), str(project.end_month),
@@ -151,11 +208,17 @@ def import_project(data: dict, db: Session = Depends(get_db)):
     except (IndexError, ValueError, TypeError):
         raise HTTPException(status_code=422, detail="Invalid or missing 'dates' array")
 
+    status = data.get("status", "draft")
+    if status not in PROJECT_STATUSES:
+        status = "draft"
     project = models.Project(
         name=data.get("project_name", "Project"),
         company=data.get("company_name", "Company"),
         start_year=start_year, start_month=start_month,
         end_year=end_year, end_month=end_month,
+        status=status,
+        win_probability_pct=float(data.get("win_probability_pct", 50.0)),
+        lost_reason=data.get("lost_reason"),
     )
     db.add(project)
     db.flush()

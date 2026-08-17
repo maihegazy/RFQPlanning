@@ -5,7 +5,7 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .config import LEVELS, LOCATIONS, TICKET_SIZES
+from .config import LEVELS, LOCATIONS, PROJECT_STATUSES, TICKET_SIZES
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +113,16 @@ class ProjectBase(BaseModel):
     start_month: int = Field(..., ge=1, le=12)
     end_year: int = Field(..., ge=1900, le=2200)
     end_month: int = Field(..., ge=1, le=12)
+    status: str = "draft"
+    win_probability_pct: float = Field(50.0, ge=0.0, le=100.0)
+    lost_reason: Optional[str] = Field(None, max_length=1000)
+
+    @field_validator("status")
+    @classmethod
+    def valid_status(cls, v: str) -> str:
+        if v not in PROJECT_STATUSES:
+            raise ValueError(f"Invalid status: {v}. Must be one of {PROJECT_STATUSES}")
+        return v
 
 
 class ProjectCreate(ProjectBase):
@@ -126,14 +136,31 @@ class ProjectUpdate(BaseModel):
     start_month: Optional[int] = Field(None, ge=1, le=12)
     end_year: Optional[int] = Field(None, ge=1900, le=2200)
     end_month: Optional[int] = Field(None, ge=1, le=12)
+    status: Optional[str] = None
+    win_probability_pct: Optional[float] = Field(None, ge=0.0, le=100.0)
+    lost_reason: Optional[str] = Field(None, max_length=1000)
+
+    @field_validator("status")
+    @classmethod
+    def valid_status(cls, v):
+        if v is not None and v not in PROJECT_STATUSES:
+            raise ValueError(f"Invalid status: {v}. Must be one of {PROJECT_STATUSES}")
+        return v
 
 
 class ProjectSummary(ProjectBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    base_project_id: Optional[int] = None
+    is_winning_scenario: bool = False
     created_at: datetime
     updated_at: datetime
+
+
+class CloneRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    as_scenario: bool = True
 
 
 class ProjectOut(ProjectSummary):
@@ -292,4 +319,5 @@ class MetaOut(BaseModel):
     locations: list[str]
     levels: list[str]
     ticket_sizes: list[str]
+    project_statuses: list[str]
     hours_per_fte_per_month: int

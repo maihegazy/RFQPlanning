@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import type { ProjectSummary, ProjectTemplate } from '../types'
-import { Button, Card, ErrorBanner, EmptyState, Input, Label, Modal, Select, Spinner } from '../components/ui'
+import { Button, Card, ErrorBanner, EmptyState, Input, Label, Modal, Select, Spinner, StatusBadge } from '../components/ui'
 import { MONTH_NAMES } from '../utils'
 import { downloadBlob } from '../download'
 import { useVault } from '../vault/VaultContext'
@@ -15,16 +15,18 @@ export default function ProjectsPage() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [showCreate, setShowCreate] = useState(false)
+  const [statusFilter, setStatusFilter] = useState<string>('')
   const fileInput = useRef<HTMLInputElement>(null)
 
   const load = () => {
     api
-      .listProjects()
+      .listProjects(statusFilter ? { status: statusFilter } : undefined)
       .then(setProjects)
       .catch((e) => setError(e.message))
   }
 
-  useEffect(load, [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(load, [statusFilter])
 
   const handleDelete = async (project: ProjectSummary) => {
     if (!window.confirm(`Delete project "${project.name}"? This cannot be undone.`)) return
@@ -123,6 +125,9 @@ export default function ProjectsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Link to="/portfolio">
+            <Button variant="secondary">📊 Portfolio</Button>
+          </Link>
           <VaultStatusButton />
           <input
             ref={fileInput}
@@ -153,6 +158,22 @@ export default function ProjectsPage() {
         </div>
       )}
 
+      <div className="mb-4 flex gap-1.5">
+        {['', 'draft', 'quoted', 'won', 'lost'].map((s) => (
+          <button
+            key={s}
+            onClick={() => setStatusFilter(s)}
+            className={`rounded-full px-3 py-1 text-xs font-medium capitalize transition-colors ${
+              statusFilter === s
+                ? 'bg-indigo-600 text-white'
+                : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            {s || 'All'}
+          </button>
+        ))}
+      </div>
+
       {projects === null ? (
         <Spinner />
       ) : projects.length === 0 ? (
@@ -165,13 +186,18 @@ export default function ProjectsPage() {
             <Card key={p.id} className="hover:border-slate-600">
               <div className="flex items-start justify-between">
                 <Link to={`/projects/${p.id}`} className="group flex-1">
-                  <h2 className="text-lg font-semibold text-slate-100 group-hover:text-indigo-400">
-                    {p.name}
-                  </h2>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-semibold text-slate-100 group-hover:text-indigo-400">
+                      {p.name}
+                    </h2>
+                    <StatusBadge status={p.status} />
+                  </div>
                   <p className="text-sm text-slate-400">{p.company}</p>
                   <p className="mt-2 text-xs text-slate-500">
                     {MONTH_NAMES[p.start_month - 1]} {p.start_year} –{' '}
                     {MONTH_NAMES[p.end_month - 1]} {p.end_year}
+                    {(p.status === 'draft' || p.status === 'quoted') &&
+                      ` · ${p.win_probability_pct}% win`}
                   </p>
                 </Link>
                 <div className="flex flex-col gap-1">

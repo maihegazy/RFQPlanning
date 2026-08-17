@@ -14,6 +14,9 @@ HOURS_PER_FTE_PER_MONTH = 160
 # Ticket sizes
 TICKET_SIZES = ["small", "medium", "large"]
 
+# RFQ lifecycle statuses
+PROJECT_STATUSES = ["draft", "quoted", "won", "lost"]
+
 # Default rate-configuration values
 DEFAULT_SP_TO_HOURS = 4.0
 DEFAULT_HW_COST_PER_HOUR = 0.0

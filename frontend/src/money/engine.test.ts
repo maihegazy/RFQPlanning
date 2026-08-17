@@ -20,6 +20,11 @@ const project: Project = {
   start_month: 1,
   end_year: 2027,
   end_month: 6,
+  status: 'draft',
+  win_probability_pct: 50,
+  lost_reason: null,
+  base_project_id: null,
+  is_winning_scenario: false,
   created_at: '',
   updated_at: '',
   features: [

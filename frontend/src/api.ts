@@ -3,6 +3,7 @@ import type {
   LegacyMoney,
   Meta,
   MoneyBlob,
+  PortfolioCapacity,
   Project,
   ProjectSummary,
   ProjectTemplate,
@@ -48,7 +49,26 @@ export const api = {
   getMeta: () => request<Meta>('/api/meta'),
   listTemplates: () => request<ProjectTemplate[]>('/api/templates'),
 
-  listProjects: () => request<ProjectSummary[]>('/api/projects'),
+  listProjects: (opts?: { status?: string; includeScenarios?: boolean }) => {
+    const params = new URLSearchParams()
+    if (opts?.status) params.set('status', opts.status)
+    if (opts?.includeScenarios) params.set('include_scenarios', 'true')
+    const qs = params.toString()
+    return request<ProjectSummary[]>(`/api/projects${qs ? `?${qs}` : ''}`)
+  },
+  cloneProject: (projectId: number, name: string, asScenario: boolean) =>
+    request<Project>(`/api/projects/${projectId}/clone`, {
+      method: 'POST',
+      body: JSON.stringify({ name, as_scenario: asScenario }),
+    }),
+  listScenarios: (projectId: number) =>
+    request<ProjectSummary[]>(`/api/projects/${projectId}/scenarios`),
+  promoteScenario: (projectId: number) =>
+    request<ProjectSummary>(`/api/projects/${projectId}/promote`, { method: 'POST' }),
+  getPortfolioCapacity: (statuses?: string[]) =>
+    request<PortfolioCapacity>(
+      `/api/portfolio/capacity${statuses?.length ? `?statuses=${statuses.join(',')}` : ''}`,
+    ),
   createProject: (data: Partial<ProjectSummary> & { template_id?: string | null }) =>
     request<Project>('/api/projects', { method: 'POST', body: JSON.stringify(data) }),
   getProject: (id: number) => request<Project>(`/api/projects/${id}`),

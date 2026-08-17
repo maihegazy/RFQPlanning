@@ -32,6 +32,8 @@ export interface Feature {
   roles: Role[]
 }
 
+export type ProjectStatus = 'draft' | 'quoted' | 'won' | 'lost'
+
 export interface ProjectSummary {
   id: number
   name: string
@@ -40,6 +42,11 @@ export interface ProjectSummary {
   start_month: number
   end_year: number
   end_month: number
+  status: ProjectStatus
+  win_probability_pct: number
+  lost_reason: string | null
+  base_project_id: number | null
+  is_winning_scenario: boolean
   created_at: string
   updated_at: string
 }
@@ -117,5 +124,14 @@ export interface Meta {
   locations: string[]
   levels: string[]
   ticket_sizes: string[]
+  project_statuses: ProjectStatus[]
   hours_per_fte_per_month: number
+}
+
+export interface PortfolioCapacity {
+  months: string[]
+  locations: string[]
+  cells: Record<string, Record<string, number>>
+  totals_by_month: Record<string, number>
+  project_count: number
 }
