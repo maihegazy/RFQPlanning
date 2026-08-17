@@ -70,8 +70,19 @@ npm run dev
 
 ```bash
 cd backend
+pip install -r requirements-dev.txt
 python3 -m pytest tests/
+
+cd ../frontend
+npm ci
+npm test
+npm run typecheck
+npm run build
 ```
+
+The same backend and frontend checks run automatically in GitHub Actions for
+pull requests and pushes to `main`. Known audit defects are recorded as strict
+expected failures; each later fix must remove its matching marker.
 
 ## Application concepts (unchanged from the desktop app)
 

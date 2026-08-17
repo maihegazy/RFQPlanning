@@ -6,28 +6,9 @@ plaintext-migration path. Monetary math is tested in the frontend engine
 suite (frontend/src/money/engine.test.ts).
 """
 
-import os
-import sys
-
-os.environ["DATABASE_URL"] = "sqlite:///./test_rfq.db"
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
 import pytest
-from fastapi.testclient import TestClient
 
-from app.database import Base, engine, run_startup_migrations
-from app.main import app
-
-
-@pytest.fixture(scope="module")
-def client():
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-    with TestClient(app) as c:
-        yield c
-    Base.metadata.drop_all(bind=engine)
-    if os.path.exists("./test_rfq.db"):
-        os.remove("./test_rfq.db")
+from app.database import engine, run_startup_migrations
 
 
 @pytest.fixture(scope="module")
