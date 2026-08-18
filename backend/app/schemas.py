@@ -5,7 +5,14 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .config import LEVELS, LOCATIONS, PROJECT_STATUSES, TICKET_SIZES
+from .config import (
+    ASPICE_PROCESSES,
+    HARDWARE_BILLING,
+    LEVELS,
+    LOCATIONS,
+    PROJECT_STATUSES,
+    TICKET_SIZES,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -469,3 +476,89 @@ class MetaOut(BaseModel):
     ticket_sizes: list[str]
     project_statuses: list[str]
     hours_per_fte_per_month: int
+    aspice_processes: list[str]
+    hardware_billing: list[str]
+
+
+# ---------------------------------------------------------------------------
+# Hardware planning (plaintext by design — not part of the encrypted vault)
+# ---------------------------------------------------------------------------
+
+class HardwareCatalogItemBase(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    aspice: str = "SWE.3"
+    billing: str = "yearly"
+    unit_cost: float = Field(0.0, ge=0.0)
+    supplier_name: str = Field("", max_length=255)
+    supplier_email: str = Field("", max_length=255)
+
+    @field_validator("aspice")
+    @classmethod
+    def valid_aspice(cls, v: str) -> str:
+        if v not in ASPICE_PROCESSES:
+            raise ValueError(f"Invalid ASPICE process: {v}")
+        return v
+
+    @field_validator("billing")
+    @classmethod
+    def valid_billing(cls, v: str) -> str:
+        if v not in HARDWARE_BILLING:
+            raise ValueError(
+                f"Invalid billing mode: {v}. Must be one of {HARDWARE_BILLING}"
+            )
+        return v
+
+
+class HardwareCatalogItemCreate(HardwareCatalogItemBase):
+    pass
+
+
+class HardwareCatalogItemUpdate(HardwareCatalogItemBase):
+    pass
+
+
+class HardwareCatalogItemOut(HardwareCatalogItemBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: datetime
+
+
+class HardwareItemBase(HardwareCatalogItemBase):
+    qty: int = Field(1, ge=0)
+    years: list[int] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def valid_years(self):
+        self.years = sorted(set(self.years))
+        for year in self.years:
+            if not 1900 <= year <= 2200:
+                raise ValueError(f"Invalid year: {year}")
+        if self.billing == "once" and len(self.years) > 1:
+            raise ValueError(
+                "A one-time purchase can only have a single purchase year"
+            )
+        return self
+
+
+class HardwareItemCreate(HardwareItemBase):
+    catalog_item_id: Optional[int] = None
+
+
+class HardwareItemUpdate(HardwareItemBase):
+    catalog_item_id: Optional[int] = None
+
+
+class HardwareItemOut(HardwareItemBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    project_id: int
+    catalog_item_id: Optional[int] = None
+    total: float = 0.0
+
+
+class HardwarePlanOut(BaseModel):
+    items: list[HardwareItemOut]
+    per_year: dict[int, float]
+    grand_total: float

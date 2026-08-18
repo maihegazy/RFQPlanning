@@ -77,6 +77,55 @@ class Project(Base):
     ticket_quotas: Mapped[list["TicketQuota"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
+    hardware_items: Mapped[list["HardwareItem"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan", order_by="HardwareItem.id"
+    )
+
+
+class HardwareCatalogItem(Base):
+    """Reusable master-catalog entry for hardware/tool planning (plaintext)."""
+
+    __tablename__ = "hardware_catalog_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    aspice: Mapped[str] = mapped_column(String(16), default="SWE.3")
+    billing: Mapped[str] = mapped_column(String(16), default="yearly")  # yearly | once
+    unit_cost: Mapped[float] = mapped_column(Float, default=0.0)
+    supplier_name: Mapped[str] = mapped_column(String(255), default="")
+    supplier_email: Mapped[str] = mapped_column(String(255), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class HardwareItem(Base):
+    """Hardware/tool row planned for one project.
+
+    Values are snapshotted from the catalog at pick time so later catalog
+    price changes never silently alter an existing quotation.
+    `years_json` holds the project years the item applies to (JSON int list):
+    every selected year counts once for yearly billing; a one-time purchase
+    uses its single selected year.
+    """
+
+    __tablename__ = "hardware_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    catalog_item_id: Mapped[int | None] = mapped_column(
+        ForeignKey("hardware_catalog_items.id", ondelete="SET NULL"), nullable=True
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    aspice: Mapped[str] = mapped_column(String(16), default="SWE.3")
+    billing: Mapped[str] = mapped_column(String(16), default="yearly")
+    unit_cost: Mapped[float] = mapped_column(Float, default=0.0)
+    qty: Mapped[int] = mapped_column(Integer, default=1)
+    years_json: Mapped[str] = mapped_column(Text, default="[]")
+    supplier_name: Mapped[str] = mapped_column(String(255), default="")
+    supplier_email: Mapped[str] = mapped_column(String(255), default="")
+
+    project: Mapped["Project"] = relationship(back_populates="hardware_items")
 
 
 class CustomTemplate(Base):

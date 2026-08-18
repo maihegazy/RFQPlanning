@@ -64,7 +64,12 @@ export default function ReportsTab({ project, meta }: { project: Project; meta: 
     <div className="space-y-6">
       <div className="flex flex-wrap gap-2">
         {unlocked && budget && money && (
-          <Button onClick={() => downloadBudgetWorkbook(project, money, rates, budget)}>
+          <Button
+            onClick={async () => {
+              const hardware = await api.getHardwarePlan(project.id).catch(() => null)
+              await downloadBudgetWorkbook(project, money, rates, budget, hardware)
+            }}
+          >
             ⬇ Download Budget Plan (Excel)
           </Button>
         )}

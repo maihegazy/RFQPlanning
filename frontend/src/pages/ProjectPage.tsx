@@ -7,6 +7,7 @@ import { VaultStatusButton } from '../vault/VaultGate'
 import InfoTab from '../tabs/InfoTab'
 import ResourcesTab from '../tabs/ResourcesTab'
 import BudgetTab from '../tabs/BudgetTab'
+import HardwareTab from '../tabs/HardwareTab'
 import ReportsTab from '../tabs/ReportsTab'
 import CompareTab from '../tabs/CompareTab'
 
@@ -92,6 +93,7 @@ const TABS = [
   { path: 'info', label: 'Project Info' },
   { path: 'resources', label: 'Resources' },
   { path: 'budget', label: 'Budget' },
+  { path: 'hardware', label: 'Hardware' },
   { path: 'reports', label: 'Reports' },
   { path: 'compare', label: 'Scenarios' },
 ]
@@ -219,6 +221,7 @@ export default function ProjectPage() {
           element={<ResourcesTab project={project} meta={meta} onChanged={reload} />}
         />
         <Route path="budget" element={<BudgetTab project={project} meta={meta} />} />
+        <Route path="hardware" element={<HardwareTab project={project} meta={meta} />} />
         <Route path="reports" element={<ReportsTab project={project} meta={meta} />} />
         <Route
           path="compare"

@@ -59,6 +59,19 @@ def clone_project(db: Session, source: models.Project, name: str,
             project_id=clone.id, size=tc.size,
             story_points=tc.story_points, price=tc.price,
         ))
+    for hw in source.hardware_items:
+        db.add(models.HardwareItem(
+            project_id=clone.id,
+            catalog_item_id=hw.catalog_item_id,
+            name=hw.name,
+            aspice=hw.aspice,
+            billing=hw.billing,
+            unit_cost=hw.unit_cost,
+            qty=hw.qty,
+            years_json=hw.years_json,
+            supplier_name=hw.supplier_name,
+            supplier_email=hw.supplier_email,
+        ))
     for tq in source.ticket_quotas:
         db.add(models.TicketQuota(
             project_id=clone.id, year=tq.year, size=tq.size,
