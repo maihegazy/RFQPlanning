@@ -1,0 +1,211 @@
+{
+  "project_name": "Complete Example RFQ",
+  "company_name": "Demo OEM AG",
+  "status": "quoted",
+  "win_probability_pct": 60,
+  "lost_reason": null,
+  "dates": ["2026", "1", "2028", "6"],
+  "features": [
+    {
+      "Feature": "Project Management",
+      "Roles": [
+        {
+          "Role": "Project Lead (PL)",
+          "Location": "BCC",
+          "Level": "PM/TL",
+          "FTEs": 1.0,
+          "use_advanced_allocation": false,
+          "allocations": []
+        },
+        {
+          "Role": "Technical Lead (TL)",
+          "Location": "BCC",
+          "Level": "PM/TL",
+          "FTEs": 1.0,
+          "use_advanced_allocation": false,
+          "allocations": []
+        },
+        {
+          "Role": "Integrator",
+          "Location": "HCC",
+          "Level": "Senior",
+          "FTEs": 0.8,
+          "use_advanced_allocation": false,
+          "allocations": []
+        }
+      ]
+    },
+    {
+      "Feature": "Base Software Platform",
+      "Roles": [
+        {
+          "Role": "Software Architect",
+          "Location": "BCC",
+          "Level": "Principal",
+          "FTEs": 0.0,
+          "use_advanced_allocation": true,
+          "allocations": [
+            { "start_month": "2026-01", "end_month": "2026-06", "ftes": 1.0 },
+            { "start_month": "2026-07", "end_month": "2027-12", "ftes": 0.5 }
+          ]
+        },
+        {
+          "Role": "Developer",
+          "Location": "BCC",
+          "Level": "FO",
+          "FTEs": 1.0,
+          "use_advanced_allocation": false,
+          "allocations": []
+        },
+        {
+          "Role": "Developer",
+          "Location": "BCC",
+          "Level": "Senior",
+          "FTEs": 1.0,
+          "use_advanced_allocation": false,
+          "allocations": []
+        },
+        {
+          "Role": "Tester",
+          "Location": "HCC",
+          "Level": "Standard",
+          "FTEs": 1.0,
+          "use_advanced_allocation": false,
+          "allocations": []
+        },
+        {
+          "Role": "Developer Pool (2 people)",
+          "Location": "MCC",
+          "Level": "Junior",
+          "FTEs": 2.0,
+          "use_advanced_allocation": false,
+          "allocations": []
+        }
+      ]
+    },
+    {
+      "Feature": "Diagnostics & DoIP",
+      "Roles": [
+        {
+          "Role": "Diagnostics Developer",
+          "Location": "HCC",
+          "Level": "FO",
+          "FTEs": 0.0,
+          "use_advanced_allocation": true,
+          "allocations": [
+            { "start_month": "2026-02", "end_month": "2026-04", "ftes": 0.3 },
+            { "start_month": "2026-05", "end_month": "2026-09", "ftes": 0.6 },
+            { "start_month": "2026-10", "end_month": "2027-08", "ftes": 1.0 },
+            { "start_month": "2028-01", "end_month": "2028-06", "ftes": 0.5 }
+          ]
+        },
+        {
+          "Role": "Diagnostics Tester",
+          "Location": "MCC",
+          "Level": "Standard",
+          "FTEs": 0.5,
+          "use_advanced_allocation": false,
+          "allocations": []
+        }
+      ]
+    },
+    {
+      "Feature": "Cyber Security",
+      "Roles": [
+        {
+          "Role": "Security Lead",
+          "Location": "BCC",
+          "Level": "FO",
+          "FTEs": 0.5,
+          "use_advanced_allocation": false,
+          "allocations": []
+        },
+        {
+          "Role": "Penetration Tester",
+          "Location": "HCC",
+          "Level": "Principal",
+          "FTEs": 0.0,
+          "use_advanced_allocation": true,
+          "allocations": [
+            { "start_month": "2027-03", "end_month": "2027-08", "ftes": 1.0 }
+          ]
+        }
+      ]
+    },
+    {
+      "Feature": "Calibration & EOL",
+      "Roles": [
+        {
+          "Role": "Calibration Engineer",
+          "Location": "MCC",
+          "Level": "Senior",
+          "FTEs": 1.0,
+          "use_advanced_allocation": false,
+          "allocations": []
+        },
+        {
+          "Role": "EOL Support",
+          "Location": "MCC",
+          "Level": "Junior",
+          "FTEs": 0.0,
+          "use_advanced_allocation": true,
+          "allocations": [
+            { "start_month": "2026-06", "end_month": "2026-12", "ftes": 0.4 },
+            { "start_month": "2027-06", "end_month": "2028-06", "ftes": 0.8 }
+          ]
+        }
+      ]
+    }
+  ],
+  "rate_config": {
+    "sp_to_hours": 4.0,
+    "risk_factor_pct": 10.0,
+    "hw_cost_per_hour": 2.5,
+    "hourly_rates": {
+      "BCC": 95.0,
+      "HCC": 78.0,
+      "MCC": 62.0
+    },
+    "cost_rates": {
+      "BCC": {
+        "PM/TL": 70.0,
+        "FO": 62.0,
+        "Principal": 66.0,
+        "Senior": 58.0,
+        "Standard": 48.0,
+        "Junior": 38.0
+      },
+      "HCC": {
+        "PM/TL": 58.0,
+        "FO": 52.0,
+        "Principal": 55.0,
+        "Senior": 48.0,
+        "Standard": 40.0,
+        "Junior": 32.0
+      },
+      "MCC": {
+        "PM/TL": 45.0,
+        "FO": 40.0,
+        "Principal": 43.0,
+        "Senior": 37.0,
+        "Standard": 31.0,
+        "Junior": 25.0
+      }
+    },
+    "ticket_sp": {
+      "small": 5.0,
+      "medium": 8.0,
+      "large": 13.0
+    },
+    "ticket_price": {
+      "small": 800.0,
+      "medium": 1500.0,
+      "large": 2600.0
+    },
+    "ticket_quota": {
+      "2026": { "small": 20.0, "medium": 25.0, "large": 10.0 },
+      "2027": { "small": 15.0, "medium": 20.0, "large": 15.0 },
+      "2028": { "small": 10.0, "medium": 10.0, "large": 5.0 }
+    }
+  }
+}
