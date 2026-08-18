@@ -14,6 +14,7 @@ const apiMock = vi.hoisted(() => ({
   importProject: vi.fn(),
   getMeta: vi.fn(),
   putMoneyBlob: vi.fn(),
+  deleteProject: vi.fn(),
 }))
 
 vi.mock('./api', () => ({ api: apiMock }))
@@ -29,7 +30,10 @@ const vaultMock = vi.hoisted(() => ({
 }))
 
 vi.mock('./vault/VaultContext', () => ({ useVault: () => vaultMock }))
-vi.mock('./vault/VaultGate', () => ({ VaultStatusButton: () => null }))
+vi.mock('./vault/VaultGate', () => ({
+  VaultStatusButton: () => null,
+  VaultDialog: () => null,
+}))
 
 const meta: Meta = {
   locations: ['BCC', 'HCC', 'MCC'],
@@ -65,7 +69,7 @@ describe('known frontend regressions', () => {
     apiMock.listProjects.mockResolvedValue([])
   })
 
-  it.fails('refreshes project-info fields when a scenario is switched', () => {
+  it('refreshes project-info fields when a scenario is switched', () => {
     let renderer!: ReactTestRenderer
     const first = project(1, 'Base scenario')
     const second = project(2, 'Alternative scenario')
@@ -81,7 +85,7 @@ describe('known frontend regressions', () => {
     expect(nameInput.props.value).toBe(second.name)
   })
 
-  it.fails('starts a new allocation period in the month after the previous period', () => {
+  it('starts a new allocation period in the month after the previous period', () => {
     const currentProject = project(1, 'Allocation project')
     const feature: Feature = {
       id: 10,
@@ -128,7 +132,7 @@ describe('known frontend regressions', () => {
     expect(monthInputs[2].props.value).toBe('2026-04')
   })
 
-  it.fails('defers a financial import until the vault is unlocked', async () => {
+  it('defers a financial import until the vault is unlocked', async () => {
     const imported = project(99, 'Imported project')
     apiMock.importProject.mockResolvedValue(imported)
 

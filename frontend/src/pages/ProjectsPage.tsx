@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import type { ProjectSummary, ProjectTemplate } from '../types'
@@ -6,8 +6,20 @@ import { Button, Card, ErrorBanner, EmptyState, Input, Label, Modal, Select, Spi
 import { MONTH_NAMES } from '../utils'
 import { downloadBlob } from '../download'
 import { useVault } from '../vault/VaultContext'
-import { VaultStatusButton } from '../vault/VaultGate'
+import { VaultDialog, VaultStatusButton } from '../vault/VaultGate'
 import { emptyMoneyConfig, type MoneyConfig } from '../money/types'
+
+type LegacyImport = {
+  rate_config?: Record<string, unknown>
+  [key: string]: unknown
+}
+
+function containsFinancialData(data: LegacyImport): boolean {
+  const rates = data.rate_config ?? {}
+  return Boolean(
+    rates.hourly_rates || rates.cost_rates || rates.ticket_price || rates.hw_cost_per_hour,
+  )
+}
 
 export default function ProjectsPage() {
   const vault = useVault()
@@ -16,17 +28,72 @@ export default function ProjectsPage() {
   const [notice, setNotice] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [statusFilter, setStatusFilter] = useState<string>('')
+  const [pendingImport, setPendingImport] = useState<LegacyImport | null>(null)
+  const [showImportVault, setShowImportVault] = useState(false)
+  const [importReady, setImportReady] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
 
-  const load = () => {
+  const load = useCallback(() => {
     api
       .listProjects(statusFilter ? { status: statusFilter } : undefined)
       .then(setProjects)
       .catch((e) => setError(e.message))
-  }
+  }, [statusFilter])
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(load, [statusFilter])
+  useEffect(load, [load])
+
+  const importProject = useCallback(
+    async (data: LegacyImport) => {
+      const project = await api.importProject(data)
+      if (!containsFinancialData(data)) return project
+
+      try {
+        const meta = await api.getMeta()
+        const rates = data.rate_config ?? {}
+        const base = emptyMoneyConfig(meta.locations, meta.levels, meta.ticket_sizes)
+        const money: MoneyConfig = {
+          ...base,
+          hourly_rates: { ...base.hourly_rates, ...((rates.hourly_rates ?? {}) as object) },
+          cost_rates: Object.fromEntries(
+            meta.locations.map((location) => [
+              location,
+              {
+                ...base.cost_rates[location],
+                ...(((rates.cost_rates as Record<string, object> | undefined)?.[location]) ?? {}),
+              },
+            ]),
+          ),
+          hw_cost_per_hour: Number(rates.hw_cost_per_hour ?? 0),
+          ticket_prices: { ...base.ticket_prices, ...((rates.ticket_price ?? {}) as object) },
+        }
+        const blob = await vault.encrypt(money)
+        await api.putMoneyBlob(project.id, {
+          encrypted_money: blob.ciphertext,
+          money_iv: blob.iv,
+        })
+        return project
+      } catch (error) {
+        await api.deleteProject(project.id).catch(() => undefined)
+        throw error
+      }
+    },
+    [vault],
+  )
+
+  useEffect(() => {
+    if (!pendingImport || !importReady || vault.status !== 'unlocked') return
+
+    const data = pendingImport
+    setPendingImport(null)
+    setImportReady(false)
+    setShowImportVault(false)
+    importProject(data)
+      .then(() => {
+        setNotice('Project imported with encrypted financial values.')
+        load()
+      })
+      .catch((e) => setError(`Import failed: ${(e as Error).message}`))
+  }, [importProject, importReady, load, pendingImport, vault.status])
 
   const handleDelete = async (project: ProjectSummary) => {
     if (!window.confirm(`Delete project "${project.name}"? This cannot be undone.`)) return
@@ -42,39 +109,16 @@ export default function ProjectsPage() {
     setError('')
     setNotice('')
     try {
-      const data = JSON.parse(await file.text())
-      // Non-monetary parts are stored by the server; money is encrypted here
-      const project = await api.importProject(data)
-      const rc = data.rate_config ?? {}
-      const hasMoney =
-        rc.hourly_rates || rc.cost_rates || rc.ticket_price || rc.hw_cost_per_hour
-      if (hasMoney) {
-        if (vault.status === 'unlocked') {
-          const meta = await api.getMeta()
-          const base = emptyMoneyConfig(meta.locations, meta.levels, meta.ticket_sizes)
-          const money: MoneyConfig = {
-            ...base,
-            hourly_rates: { ...base.hourly_rates, ...(rc.hourly_rates ?? {}) },
-            cost_rates: Object.fromEntries(
-              meta.locations.map((loc) => [
-                loc,
-                { ...base.cost_rates[loc], ...((rc.cost_rates ?? {})[loc] ?? {}) },
-              ]),
-            ),
-            hw_cost_per_hour: Number(rc.hw_cost_per_hour ?? 0),
-            ticket_prices: { ...base.ticket_prices, ...(rc.ticket_price ?? {}) },
-          }
-          const blob = await vault.encrypt(money)
-          await api.putMoneyBlob(project.id, {
-            encrypted_money: blob.ciphertext,
-            money_iv: blob.iv,
-          })
-        } else {
-          setNotice(
-            'Project imported. The file contained financial values, but the vault is locked — unlock it and re-import to bring them in encrypted.',
-          )
-        }
+      const data = JSON.parse(await file.text()) as LegacyImport
+      if (containsFinancialData(data) && vault.status !== 'unlocked') {
+        setPendingImport(data)
+        setImportReady(false)
+        setShowImportVault(true)
+        setNotice('Unlock the financial vault to continue this import securely.')
+        return
       }
+      await importProject(data)
+      setNotice('Project imported successfully.')
       load()
     } catch (e) {
       setError(`Import failed: ${(e as Error).message}`)
@@ -221,6 +265,12 @@ export default function ProjectsPage() {
             setShowCreate(false)
             load()
           }}
+        />
+      )}
+      {showImportVault && (
+        <VaultDialog
+          onUnlocked={() => setImportReady(true)}
+          onClose={() => setShowImportVault(false)}
         />
       )}
     </div>

@@ -14,7 +14,7 @@ from app.database import Base, engine  # noqa: E402
 from app.main import app  # noqa: E402
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def client():
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)

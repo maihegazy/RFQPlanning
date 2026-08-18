@@ -57,19 +57,31 @@ export function VaultPrompt({ children }: { children?: ReactNode }) {
 }
 
 /** Setup wizard (no vault yet) or unlock dialog (vault exists, locked). */
-export function VaultDialog({ onClose }: { onClose: () => void }) {
+export function VaultDialog({
+  onClose,
+  onUnlocked,
+}: {
+  onClose: () => void
+  onUnlocked?: () => void
+}) {
   const { status } = useVault()
   // Latch the mode on mount: setup flips status to 'unlocked' mid-wizard,
   // and the recovery-file step must stay visible until the user finishes.
   const [mode] = useState<'setup' | 'unlock' | null>(() =>
     status === 'no-vault' ? 'setup' : status === 'locked' ? 'unlock' : null,
   )
-  if (mode === 'setup') return <SetupWizard onClose={onClose} />
-  if (mode === 'unlock') return <UnlockDialog onClose={onClose} />
+  if (mode === 'setup') return <SetupWizard onClose={onClose} onUnlocked={onUnlocked} />
+  if (mode === 'unlock') return <UnlockDialog onClose={onClose} onUnlocked={onUnlocked} />
   return null
 }
 
-function SetupWizard({ onClose }: { onClose: () => void }) {
+function SetupWizard({
+  onClose,
+  onUnlocked,
+}: {
+  onClose: () => void
+  onUnlocked?: () => void
+}) {
   const { setup } = useVault()
   const [passphrase, setPassphrase] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -151,7 +163,14 @@ function SetupWizard({ onClose }: { onClose: () => void }) {
             Store it somewhere safe and offline (USB stick, password manager, safe).
           </p>
           <div className="flex justify-end">
-            <Button variant="secondary" onClick={onClose} disabled={!downloaded}>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                onUnlocked?.()
+                onClose()
+              }}
+              disabled={!downloaded}
+            >
               {downloaded ? 'Done' : 'Download the file to continue'}
             </Button>
           </div>
@@ -161,7 +180,13 @@ function SetupWizard({ onClose }: { onClose: () => void }) {
   )
 }
 
-function UnlockDialog({ onClose }: { onClose: () => void }) {
+function UnlockDialog({
+  onClose,
+  onUnlocked,
+}: {
+  onClose: () => void
+  onUnlocked?: () => void
+}) {
   const { unlock, unlockWithFile } = useVault()
   const [passphrase, setPassphrase] = useState('')
   const [error, setError] = useState('')
@@ -173,6 +198,7 @@ function UnlockDialog({ onClose }: { onClose: () => void }) {
     setError('')
     try {
       await unlock(passphrase)
+      onUnlocked?.()
       onClose()
     } catch (e) {
       setError((e as Error).message)
@@ -185,6 +211,7 @@ function UnlockDialog({ onClose }: { onClose: () => void }) {
     setError('')
     try {
       await unlockWithFile(await file.text())
+      onUnlocked?.()
       onClose()
     } catch (e) {
       setError((e as Error).message)
