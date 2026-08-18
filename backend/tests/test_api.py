@@ -635,3 +635,43 @@ def test_hardware_planning(client, project_id):
     assert resp.status_code == 204
     plan = client.get(f"/api/projects/{project_id}/hardware").json()
     assert len(plan["items"]) == 1
+
+
+def test_hardware_catalog_seeded(client):
+    """The standard procurement catalog ships with the app and seeds cleanly."""
+    from app.database import SessionLocal
+    from app.services.hardware_seed import load_seed_items, seed_hardware_catalog
+
+    seed = load_seed_items()
+    assert len(seed) >= 70
+    names = {item["name"] for item in seed}
+    assert {"CANoe PRO (perpetual)", "MATLAB (floating, perpetual)", "Jira"} <= names
+
+    with SessionLocal() as db:
+        seed_hardware_catalog(db)
+        # Seeding twice must not duplicate anything
+        assert seed_hardware_catalog(db) == 0
+
+    catalog = client.get("/api/hardware-catalog").json()
+    by_name = {item["name"]: item for item in catalog}
+    assert names <= set(by_name)
+    assert len(catalog) == len(by_name)  # no duplicate names
+
+    canoe = by_name["CANoe PRO (perpetual)"]
+    assert canoe["unit_cost"] == 11660.0
+    assert canoe["billing"] == "once"  # perpetual purchase
+    assert canoe["supplier_name"] == "Vector"
+    assert canoe["aspice"] in {
+        "SYS.1", "SYS.2", "SYS.3", "SYS.4", "SYS.5",
+        "SWE.1", "SWE.2", "SWE.3", "SWE.4", "SWE.5", "SWE.6",
+        "SUP.1", "SUP.8", "SUP.9", "SUP.10", "MAN.3",
+    }
+
+    maintenance = by_name["Maintenance CANoe PRO"]
+    assert maintenance["billing"] == "yearly"  # rented/recurring
+    assert maintenance["unit_cost"] == 2332.0
+
+    # Every seed row carries a supplier and a positive price
+    for item in seed:
+        assert item["supplier_name"], item["name"]
+        assert item["unit_cost"] > 0, item["name"]

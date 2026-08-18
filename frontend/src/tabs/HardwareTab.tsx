@@ -67,6 +67,7 @@ function CatalogModal({
   const [items, setItems] = useState<HardwareCatalogItem[] | null>(null)
   const [form, setForm] = useState<HardwareCatalogItemInput>(EMPTY_CATALOG_FORM)
   const [editingId, setEditingId] = useState<number | null>(null)
+  const [search, setSearch] = useState('')
   const [error, setError] = useState('')
 
   const reload = useCallback(() => {
@@ -119,12 +120,20 @@ function CatalogModal({
         </p>
         {error && <ErrorBanner message={error} />}
 
+        {items !== null && items.length > 0 && (
+          <Input
+            placeholder="Search catalog by item or supplier…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        )}
+
         {items === null ? (
           <Spinner />
         ) : items.length === 0 ? (
           <EmptyState>No catalog items yet. Add the first one below.</EmptyState>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="max-h-96 overflow-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-700 text-left text-xs uppercase tracking-wide text-slate-400">
@@ -138,7 +147,16 @@ function CatalogModal({
                 </tr>
               </thead>
               <tbody>
-                {items.map((item) => (
+                {items
+                  .filter((item) => {
+                    const q = search.trim().toLowerCase()
+                    if (!q) return true
+                    return (
+                      item.name.toLowerCase().includes(q) ||
+                      item.supplier_name.toLowerCase().includes(q)
+                    )
+                  })
+                  .map((item) => (
                   <tr key={item.id} className="border-b border-slate-800">
                     <td className="py-2 pr-3">{item.name}</td>
                     <td className="py-2 pr-3">{item.aspice}</td>
@@ -417,6 +435,18 @@ export default function HardwareTab({
     }
   }
 
+  /** Catalog grouped by supplier so the picker stays navigable. */
+  const catalogBySupplier = useMemo(() => {
+    const groups = new Map<string, HardwareCatalogItem[]>()
+    for (const item of catalog) {
+      const supplier = item.supplier_name.trim() || 'Other'
+      const group = groups.get(supplier)
+      if (group) group.push(item)
+      else groups.set(supplier, [item])
+    }
+    return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  }, [catalog])
+
   const totals = useMemo(() => {
     const perYear: Record<number, number> = {}
     let grand = 0
@@ -446,10 +476,15 @@ export default function HardwareTab({
               }}
             >
               <option value="">+ Add from catalog…</option>
-              {catalog.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name} ({formatEuro(item.unit_cost)})
-                </option>
+              {catalogBySupplier.map(([supplier, supplierItems]) => (
+                <optgroup key={supplier} label={supplier}>
+                  {supplierItems.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name} — {formatEuro(item.unit_cost)}
+                      {item.billing === 'yearly' ? '/yr' : ''}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </Select>
             <Button variant="secondary" onClick={addBlankRow}>
@@ -489,7 +524,7 @@ export default function HardwareTab({
           </EmptyState>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] text-sm">
+            <table className="w-full min-w-[1000px] text-sm">
               <thead>
                 <tr className="border-b border-slate-700 text-left text-xs uppercase tracking-wide text-slate-400">
                   <th className="py-2 pr-2">ASPICE</th>
@@ -512,7 +547,7 @@ export default function HardwareTab({
                   <tr key={row.key} className="border-b border-slate-800 align-top">
                     <td className="py-2 pr-2">
                       <Select
-                        className="w-24"
+                        className="min-w-24 px-2"
                         value={row.aspice}
                         onChange={(e) => updateRow(row.key, { aspice: e.target.value })}
                       >
@@ -536,7 +571,7 @@ export default function HardwareTab({
                     </td>
                     <td className="py-2 pr-2">
                       <Select
-                        className="w-24"
+                        className="min-w-24 px-2"
                         value={row.billing}
                         onChange={(e) => {
                           const billing = e.target.value as HardwareBilling
