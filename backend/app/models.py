@@ -11,6 +11,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -53,7 +54,7 @@ class Project(Base):
         ForeignKey("projects.id", ondelete="CASCADE"), nullable=True, index=True
     )
     is_winning_scenario: Mapped[bool] = mapped_column(
-        Boolean, default=False, server_default="0"
+        Boolean, default=False, server_default=false()
     )
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

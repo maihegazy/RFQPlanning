@@ -25,6 +25,25 @@ def get_role_or_404(role_id: int, db: Session) -> models.Role:
     return role
 
 
+def validate_allocations_in_project(
+    data: schemas.RoleCreate,
+    project: models.Project,
+) -> None:
+    if not data.use_advanced_allocation:
+        return
+    project_start = f"{project.start_year:04d}-{project.start_month:02d}"
+    project_end = f"{project.end_year:04d}-{project.end_month:02d}"
+    for period in data.allocations:
+        if period.start_month < project_start or period.end_month > project_end:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Allocation period {period.start_month} to {period.end_month} "
+                    f"must stay within project timeline {project_start} to {project_end}"
+                ),
+            )
+
+
 @router.get("/projects/{project_id}/features", response_model=list[schemas.FeatureOut])
 def list_features(project_id: int, db: Session = Depends(get_db)):
     project = get_project_or_404(project_id, db)
@@ -65,6 +84,7 @@ def delete_feature(feature_id: int, db: Session = Depends(get_db)):
 def create_role(feature_id: int, data: schemas.RoleCreate,
                 db: Session = Depends(get_db)):
     feature = get_feature_or_404(feature_id, db)
+    validate_allocations_in_project(data, feature.project)
     role = models.Role(
         feature_id=feature.id,
         name=data.name,
@@ -86,6 +106,7 @@ def create_role(feature_id: int, data: schemas.RoleCreate,
 def update_role(role_id: int, data: schemas.RoleUpdate,
                 db: Session = Depends(get_db)):
     role = get_role_or_404(role_id, db)
+    validate_allocations_in_project(data, role.feature.project)
     role.name = data.name
     role.location = data.location
     role.level = data.level
@@ -140,7 +161,22 @@ def update_resource_grid(project_id: int, data: schemas.ResourceGridUpdate,
                 detail=f"Role {entry.role_id} not found in this project",
             )
 
-        values = [float(entry.ftes_by_month.get(m, 0.0)) for m in months]
+        supplied_months = set(entry.ftes_by_month)
+        expected_months = set(months)
+        if supplied_months != expected_months:
+            missing = sorted(expected_months - supplied_months)
+            extra = sorted(supplied_months - expected_months)
+            details = []
+            if missing:
+                details.append(f"missing months: {', '.join(missing)}")
+            if extra:
+                details.append(f"unexpected months: {', '.join(extra)}")
+            raise HTTPException(
+                status_code=422,
+                detail=f"Role {entry.role_id} month coverage is invalid ({'; '.join(details)})",
+            )
+
+        values = [float(entry.ftes_by_month[m]) for m in months]
         compressed = calculations.compress_monthly_ftes(months, values)
 
         for alloc in list(role.allocations):
