@@ -138,6 +138,25 @@ function writeCostProfitSheet(wb: ExcelJS.Workbook, plan: BudgetPlan) {
       row += 1
     })
 
+    // Non-labor costs feed into the Overall row — show them explicitly
+    const nl = plan.non_labor_summary.filter((r) => r.year === year)
+    const nlCost = nl.reduce((s, r) => s + r.cost, 0)
+    const nlBilled = nl.reduce((s, r) => s + r.billed, 0)
+    if (nlCost !== 0 || nlBilled !== 0) {
+      setCell(sheet, row, 0, '')
+      setCell(sheet, row, 1, `Non-labor (${nl.map((r) => r.category).join(', ')})`, {
+        align: 'left', fontColor: 'FF6B7A99',
+      })
+      setCell(sheet, row, 2, '—')
+      setCell(sheet, row, 3, nlCost, { numFmt: EURO_FMT })
+      setCell(sheet, row, 4, nlBilled, { numFmt: EURO_FMT })
+      setCell(sheet, row, 5, '—')
+      setCell(sheet, row, 6, '—')
+      setCell(sheet, row, 7, nlBilled - nlCost, { numFmt: EURO_FMT })
+      setCell(sheet, row, 8, '—')
+      row += 1
+    }
+
     const overall = plan.cost_profit_overall.find((o) => o.year === year)
     if (overall) {
       setCell(sheet, row, 0, 'Overall', { bold: true, bg: GREEN })

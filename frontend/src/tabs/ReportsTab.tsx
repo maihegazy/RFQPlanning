@@ -105,6 +105,7 @@ export default function ReportsTab({ project, meta }: { project: Project; meta: 
                       key={overall.year}
                       year={overall.year}
                       rows={budget.cost_profit_summary.filter((r) => r.year === overall.year)}
+                      nonLabor={budget.non_labor_summary.filter((r) => r.year === overall.year)}
                       overall={overall}
                     />
                   ))}
@@ -191,12 +192,16 @@ export default function ReportsTab({ project, meta }: { project: Project; meta: 
 function YearGroup({
   year,
   rows,
+  nonLabor,
   overall,
 }: {
   year: string
   rows: BudgetPlan['cost_profit_summary']
+  nonLabor: BudgetPlan['non_labor_summary']
   overall: BudgetPlan['cost_profit_overall'][number]
 }) {
+  const nonLaborCost = nonLabor.reduce((s, r) => s + r.cost, 0)
+  const nonLaborBilled = nonLabor.reduce((s, r) => s + r.billed, 0)
   return (
     <>
       {rows.map((r, i) => (
@@ -212,6 +217,26 @@ function YearGroup({
           <td className="py-2 text-right">{formatNumber(r.profit_pct)}%</td>
         </tr>
       ))}
+      {(nonLaborCost !== 0 || nonLaborBilled !== 0) && (
+        <tr className="border-t border-slate-800/60 italic text-slate-400">
+          <td className="py-2 pr-4"></td>
+          <td className="py-2 pr-4">
+            Non-labor costs
+            <span className="ml-1.5 not-italic text-[10px] text-slate-500">
+              ({nonLabor.map((r) => r.category).join(', ')})
+            </span>
+          </td>
+          <td className="py-2 pr-4 text-right">—</td>
+          <td className="py-2 pr-4 text-right">{formatEuro(nonLaborCost)}</td>
+          <td className="py-2 pr-4 text-right">
+            {nonLaborBilled > 0 ? formatEuro(nonLaborBilled) : '—'}
+          </td>
+          <td className="py-2 pr-4 text-right">—</td>
+          <td className="py-2 pr-4 text-right">—</td>
+          <td className="py-2 pr-4 text-right">{formatEuro(nonLaborBilled - nonLaborCost)}</td>
+          <td className="py-2 text-right">—</td>
+        </tr>
+      )}
       <tr className="border-t border-slate-700 bg-emerald-950/40 font-semibold text-emerald-300">
         <td className="py-2 pr-4">Overall</td>
         <td className="py-2 pr-4"></td>
