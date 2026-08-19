@@ -17,6 +17,9 @@ import {
   parseRecoveryFile,
   unlockWithPassphrase,
   unlockWithRecoveryKey,
+  unwrapDekRaw,
+  unwrapDekRawWithRecovery,
+  rewrapDek,
   type WrappedKey,
 } from '../crypto'
 
@@ -28,6 +31,10 @@ interface VaultContextValue {
   setup: (passphrase: string) => Promise<string>
   unlock: (passphrase: string) => Promise<void>
   unlockWithFile: (fileContent: string) => Promise<void>
+  /** Re-wrap the data key under a new passphrase. Proof of ownership is either
+   *  the current passphrase or the recovery file — data is never re-encrypted. */
+  changePassphrase: (proof: { passphrase: string } | { recoveryFile: string },
+                     newPassphrase: string) => Promise<void>
   lock: () => void
   encrypt: (obj: unknown) => Promise<WrappedKey>
   decrypt: <T>(blob: WrappedKey) => Promise<T>
@@ -104,6 +111,45 @@ export function VaultProvider({ children }: { children: ReactNode }) {
     [info],
   )
 
+  const changePassphrase = useCallback(
+    async (proof: { passphrase: string } | { recoveryFile: string }, newPassphrase: string) => {
+      if (!info?.exists) throw new Error('Vault not set up')
+      let dekRaw: Uint8Array
+      if ('passphrase' in proof) {
+        try {
+          dekRaw = await unwrapDekRaw(proof.passphrase, info.kdf_salt, info.kdf_iterations, {
+            iv: info.wrapped_dek_passphrase_iv,
+            ciphertext: info.wrapped_dek_passphrase,
+          })
+        } catch {
+          throw new Error('Current passphrase is wrong')
+        }
+      } else {
+        try {
+          dekRaw = await unwrapDekRawWithRecovery(parseRecoveryFile(proof.recoveryFile), {
+            iv: info.wrapped_dek_recovery_iv,
+            ciphertext: info.wrapped_dek_recovery,
+          })
+        } catch {
+          throw new Error('Recovery key does not match this vault')
+        }
+      }
+
+      const rewrapped = await rewrapDek(dekRaw, newPassphrase)
+      await api.changeVaultPassphrase({
+        kdf_salt: rewrapped.kdfSalt,
+        kdf_iterations: rewrapped.kdfIterations,
+        wrapped_dek_passphrase_iv: rewrapped.wrapped.iv,
+        wrapped_dek_passphrase: rewrapped.wrapped.ciphertext,
+      })
+      setInfo(await api.getVault())
+      // Keep the session open under the new passphrase
+      setDek(await unlockWithPassphrase(newPassphrase, rewrapped.kdfSalt,
+        rewrapped.kdfIterations, rewrapped.wrapped))
+    },
+    [info],
+  )
+
   const lock = useCallback(() => setDek(null), [])
 
   const encrypt = useCallback(
@@ -123,8 +169,8 @@ export function VaultProvider({ children }: { children: ReactNode }) {
   )
 
   const value = useMemo(
-    () => ({ status, setup, unlock, unlockWithFile, lock, encrypt, decrypt }),
-    [status, setup, unlock, unlockWithFile, lock, encrypt, decrypt],
+    () => ({ status, setup, unlock, unlockWithFile, changePassphrase, lock, encrypt, decrypt }),
+    [status, setup, unlock, unlockWithFile, changePassphrase, lock, encrypt, decrypt],
   )
 
   return <VaultContext.Provider value={value}>{children}</VaultContext.Provider>

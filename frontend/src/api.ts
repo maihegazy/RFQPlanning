@@ -181,6 +181,16 @@ export const api = {
     wrapped_dek_recovery_iv: string
     wrapped_dek_recovery: string
   }) => request<VaultInfo>('/api/vault', { method: 'POST', body: JSON.stringify(keys) }),
+  changeVaultPassphrase: (keys: {
+    kdf_salt: string
+    kdf_iterations: number
+    wrapped_dek_passphrase_iv: string
+    wrapped_dek_passphrase: string
+  }) =>
+    request<VaultInfo>('/api/vault/passphrase', {
+      method: 'PUT',
+      body: JSON.stringify(keys),
+    }),
   getMoneyBlob: (projectId: number) =>
     request<MoneyBlob>(`/api/projects/${projectId}/financial-data`),
   putMoneyBlob: (projectId: number, blob: MoneyBlob) =>

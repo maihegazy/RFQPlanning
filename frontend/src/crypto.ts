@@ -140,12 +140,23 @@ export async function unlockWithRecoveryKey(
   return importAesKey(dekRaw)
 }
 
+/** Unwrap the raw DEK bytes with the recovery key (passphrase reset). */
+export async function unwrapDekRawWithRecovery(
+  recoveryKeyB64: string,
+  wrappedDek: WrappedKey,
+): Promise<Uint8Array> {
+  const recoveryKey = await importAesKey(fromBase64(recoveryKeyB64))
+  return aesDecrypt(recoveryKey, wrappedDek)
+}
+
 /**
- * Re-wrap the DEK under a new passphrase (passphrase change). Requires an
- * unlocked session? No — requires the DEK raw bytes, so we unwrap with the
- * current credentials first, outside this function, and pass the CryptoKey
- * as non-extractable... AES keys imported non-extractable cannot be re-wrapped.
- * Instead: unwrap raw DEK with old credentials and call this with the raw.
+ * Re-wrap the DEK under a new passphrase (passphrase change).
+ *
+ * Takes the raw DEK bytes rather than a CryptoKey: session keys are imported
+ * non-extractable, so their bytes cannot be read back. Unwrap the raw DEK with
+ * the current passphrase or the recovery key first, then pass it here. The DEK
+ * itself is unchanged, so existing ciphertext stays readable and the recovery
+ * key keeps working.
  */
 export async function rewrapDek(
   dekRaw: Uint8Array,

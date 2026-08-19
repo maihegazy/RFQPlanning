@@ -25,6 +25,10 @@ cost per hour, ticket prices) are **end-to-end encrypted in the browser**:
 - Keys: passphrase → PBKDF2-SHA256 (600k iterations) → wraps a random AES-256-GCM
   data key. The server stores only KDF salt + wrapped keys + ciphertext blobs.
   The passphrase, recovery key and data key **never leave the browser**.
+- The passphrase can be changed at any time from the header (gear icon next to
+  the unlocked pill), proving ownership with either the current passphrase or
+  the recovery file. Only the wrapped key is replaced — no project data is
+  re-encrypted, and the existing recovery file keeps working.
 - Nobody with database or backend access can read financial data — DB dumps and
   backups contain only ciphertext. Losing both passphrase and recovery file
   makes financial data unrecoverable **by design** (effort data is unaffected).
