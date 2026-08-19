@@ -110,7 +110,11 @@ expected failures; each later fix must remove its matching marker.
   selected year, one-time purchases once in their selected year. Rows can be
   typed in ad hoc or picked from the shared **hardware catalog**, which
   snapshots its values into the project so later catalog price changes never
-  alter an existing quotation. Hardware totals are reported on their own (they
+  alter an existing quotation. Supplier contact details belong to the vendor's
+  catalog entry — project rows display the email read-only and always show the
+  current one, so updating an address in the catalog updates every plan using
+  it. The catalog manager is reachable from the Hardware tab and from the
+  home page. Hardware totals are reported on their own (they
   do not feed the cost-profit analysis) and export both as a standalone workbook
   and as a Hardware sheet in the budget workbook. Unlike financial data, the
   hardware plan is stored in plaintext.

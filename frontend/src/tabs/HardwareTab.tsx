@@ -3,21 +3,12 @@ import { api } from '../api'
 import type {
   HardwareBilling,
   HardwareCatalogItem,
-  HardwareCatalogItemInput,
   HardwareItemInput,
   Meta,
   Project,
 } from '../types'
-import {
-  Button,
-  Card,
-  EmptyState,
-  ErrorBanner,
-  Input,
-  Modal,
-  Select,
-  Spinner,
-} from '../components/ui'
+import { Button, Card, EmptyState, ErrorBanner, Input, Select, Spinner } from '../components/ui'
+import HardwareCatalogModal from '../components/HardwareCatalogModal'
 import { downloadBlob } from '../download'
 import { formatEuro, projectYears } from '../utils'
 
@@ -46,223 +37,6 @@ function rowYearCosts(row: HardwareItemInput, startYear: number): Record<number,
   return costs
 }
 
-const EMPTY_CATALOG_FORM: HardwareCatalogItemInput = {
-  name: '',
-  aspice: 'SWE.3',
-  billing: 'yearly',
-  unit_cost: 0,
-  supplier_name: '',
-  supplier_email: '',
-}
-
-function CatalogModal({
-  meta,
-  onClose,
-  onChanged,
-}: {
-  meta: Meta
-  onClose: () => void
-  onChanged: () => void
-}) {
-  const [items, setItems] = useState<HardwareCatalogItem[] | null>(null)
-  const [form, setForm] = useState<HardwareCatalogItemInput>(EMPTY_CATALOG_FORM)
-  const [editingId, setEditingId] = useState<number | null>(null)
-  const [search, setSearch] = useState('')
-  const [error, setError] = useState('')
-
-  const reload = useCallback(() => {
-    api.listHardwareCatalog().then(setItems).catch((e) => setError(e.message))
-  }, [])
-
-  useEffect(() => {
-    reload()
-  }, [reload])
-
-  const save = async () => {
-    setError('')
-    try {
-      if (editingId === null) {
-        await api.createHardwareCatalogItem(form)
-      } else {
-        await api.updateHardwareCatalogItem(editingId, form)
-      }
-      setForm(EMPTY_CATALOG_FORM)
-      setEditingId(null)
-      reload()
-      onChanged()
-    } catch (e) {
-      setError((e as Error).message)
-    }
-  }
-
-  const remove = async (id: number) => {
-    setError('')
-    try {
-      await api.deleteHardwareCatalogItem(id)
-      if (editingId === id) {
-        setEditingId(null)
-        setForm(EMPTY_CATALOG_FORM)
-      }
-      reload()
-      onChanged()
-    } catch (e) {
-      setError((e as Error).message)
-    }
-  }
-
-  return (
-    <Modal title="Hardware Catalog" onClose={onClose} wide>
-      <div className="space-y-4">
-        <p className="text-sm text-slate-400">
-          Reusable master list of hardware and tools. Adding a catalog item to a
-          project copies its current values — later catalog changes never alter
-          existing plans.
-        </p>
-        {error && <ErrorBanner message={error} />}
-
-        {items !== null && items.length > 0 && (
-          <Input
-            placeholder="Search catalog by item or supplier…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        )}
-
-        {items === null ? (
-          <Spinner />
-        ) : items.length === 0 ? (
-          <EmptyState>No catalog items yet. Add the first one below.</EmptyState>
-        ) : (
-          <div className="max-h-96 overflow-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-700 text-left text-xs uppercase tracking-wide text-slate-400">
-                  <th className="py-2 pr-3">Item</th>
-                  <th className="py-2 pr-3">ASPICE</th>
-                  <th className="py-2 pr-3">Billing</th>
-                  <th className="py-2 pr-3 text-right">Unit Cost</th>
-                  <th className="py-2 pr-3">Supplier</th>
-                  <th className="py-2 pr-3">Email</th>
-                  <th className="py-2" />
-                </tr>
-              </thead>
-              <tbody>
-                {items
-                  .filter((item) => {
-                    const q = search.trim().toLowerCase()
-                    if (!q) return true
-                    return (
-                      item.name.toLowerCase().includes(q) ||
-                      item.supplier_name.toLowerCase().includes(q)
-                    )
-                  })
-                  .map((item) => (
-                  <tr key={item.id} className="border-b border-slate-800">
-                    <td className="py-2 pr-3">{item.name}</td>
-                    <td className="py-2 pr-3">{item.aspice}</td>
-                    <td className="py-2 pr-3 capitalize">{item.billing}</td>
-                    <td className="py-2 pr-3 text-right">{formatEuro(item.unit_cost)}</td>
-                    <td className="py-2 pr-3">{item.supplier_name}</td>
-                    <td className="py-2 pr-3">{item.supplier_email}</td>
-                    <td className="py-2 text-right whitespace-nowrap">
-                      <Button
-                        variant="ghost"
-                        onClick={() => {
-                          setEditingId(item.id)
-                          setForm({
-                            name: item.name,
-                            aspice: item.aspice,
-                            billing: item.billing,
-                            unit_cost: item.unit_cost,
-                            supplier_name: item.supplier_name,
-                            supplier_email: item.supplier_email,
-                          })
-                        }}
-                      >
-                        Edit
-                      </Button>
-                      <Button variant="ghost" onClick={() => remove(item.id)}>
-                        Delete
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-4">
-          <h4 className="mb-3 text-sm font-semibold text-slate-200">
-            {editingId === null ? 'Add catalog item' : 'Edit catalog item'}
-          </h4>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <Input
-              placeholder="Item name"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-            />
-            <Select
-              value={form.aspice}
-              onChange={(e) => setForm({ ...form, aspice: e.target.value })}
-            >
-              {meta.aspice_processes.map((p) => (
-                <option key={p}>{p}</option>
-              ))}
-            </Select>
-            <Select
-              value={form.billing}
-              onChange={(e) =>
-                setForm({ ...form, billing: e.target.value as HardwareBilling })
-              }
-            >
-              {meta.hardware_billing.map((b) => (
-                <option key={b} value={b}>
-                  {b === 'yearly' ? 'Yearly' : 'Once'}
-                </option>
-              ))}
-            </Select>
-            <Input
-              type="number"
-              min={0}
-              step="0.01"
-              placeholder="Unit cost (€)"
-              value={form.unit_cost}
-              onChange={(e) => setForm({ ...form, unit_cost: Number(e.target.value) })}
-            />
-            <Input
-              placeholder="Supplier"
-              value={form.supplier_name}
-              onChange={(e) => setForm({ ...form, supplier_name: e.target.value })}
-            />
-            <Input
-              placeholder="Supplier email"
-              value={form.supplier_email}
-              onChange={(e) => setForm({ ...form, supplier_email: e.target.value })}
-            />
-          </div>
-          <div className="mt-3 flex justify-end gap-2">
-            {editingId !== null && (
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  setEditingId(null)
-                  setForm(EMPTY_CATALOG_FORM)
-                }}
-              >
-                Cancel Edit
-              </Button>
-            )}
-            <Button onClick={save} disabled={!form.name.trim()}>
-              {editingId === null ? 'Add to Catalog' : 'Save Changes'}
-            </Button>
-          </div>
-        </div>
-      </div>
-    </Modal>
-  )
-}
-
 export default function HardwareTab({
   project,
   meta,
@@ -275,7 +49,6 @@ export default function HardwareTab({
   const [deletedIds, setDeletedIds] = useState<number[]>([])
   const [catalog, setCatalog] = useState<HardwareCatalogItem[]>([])
   const [showCatalog, setShowCatalog] = useState(false)
-  const [catalogPick, setCatalogPick] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<number | null>(null)
@@ -374,7 +147,6 @@ export default function HardwareTab({
         dirty: true,
       },
     ])
-    setCatalogPick('')
   }
 
   const removeRow = (row: EditRow) => {
@@ -468,25 +240,27 @@ export default function HardwareTab({
         title="Hardware & Tools Plan"
         actions={
           <>
-            <Select
-              className="w-56"
-              value={catalogPick}
-              onChange={(e) => {
-                if (e.target.value) addFromCatalog(Number(e.target.value))
-              }}
-            >
+            <div className="w-64">
+              <Select
+                value=""
+                onChange={(e) => {
+                  if (e.target.value) addFromCatalog(Number(e.target.value))
+                }}
+              >
               <option value="">+ Add from catalog…</option>
-              {catalogBySupplier.map(([supplier, supplierItems]) => (
-                <optgroup key={supplier} label={supplier}>
-                  {supplierItems.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name} — {formatEuro(item.unit_cost)}
-                      {item.billing === 'yearly' ? '/yr' : ''}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </Select>
+                <option value="">+ Add from catalog…</option>
+                {catalogBySupplier.map(([supplier, supplierItems]) => (
+                  <optgroup key={supplier} label={supplier}>
+                    {supplierItems.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name} — {formatEuro(item.unit_cost)}
+                        {item.billing === 'yearly' ? '/yr' : ''}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </Select>
+            </div>
             <Button variant="secondary" onClick={addBlankRow}>
               + Add Item
             </Button>
@@ -537,7 +311,7 @@ export default function HardwareTab({
                       {year}
                     </th>
                   ))}
-                  <th className="py-2 pr-2 text-right">Total</th>
+                  <th className="py-2 pr-6 text-right">Total</th>
                   <th className="py-2 pr-2">Supplier</th>
                   <th className="py-2" />
                 </tr>
@@ -628,26 +402,47 @@ export default function HardwareTab({
                         />
                       </td>
                     ))}
-                    <td className="py-2 pr-2 text-right font-medium whitespace-nowrap">
+                    <td className="py-2 pr-6 text-right font-medium whitespace-nowrap">
                       {formatEuro(rowTotal(row))}
                     </td>
                     <td className="py-2 pr-2">
-                      <Input
-                        className="min-w-28"
-                        value={row.supplier_name}
-                        placeholder="Supplier"
-                        onChange={(e) =>
-                          updateRow(row.key, { supplier_name: e.target.value })
-                        }
-                      />
-                      <Input
-                        className="mt-1 min-w-28"
-                        value={row.supplier_email}
-                        placeholder="email"
-                        onChange={(e) =>
-                          updateRow(row.key, { supplier_email: e.target.value })
-                        }
-                      />
+                      {row.catalog_item_id !== null ? (
+                        // Catalog-linked row: the vendor entry owns the contact
+                        <div className="min-w-36 py-2">
+                          <div className="whitespace-nowrap text-slate-200">
+                            {row.supplier_name || '—'}
+                          </div>
+                          {row.supplier_email ? (
+                            <a
+                              href={`mailto:${row.supplier_email}`}
+                              className="text-xs text-indigo-400 hover:underline"
+                            >
+                              {row.supplier_email}
+                            </a>
+                          ) : (
+                            <button
+                              onClick={() => setShowCatalog(true)}
+                              className="text-xs text-slate-500 hover:text-indigo-400"
+                            >
+                              + add email in catalog
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <>
+                          <Input
+                            className="min-w-36"
+                            value={row.supplier_name}
+                            placeholder="Supplier"
+                            onChange={(e) =>
+                              updateRow(row.key, { supplier_name: e.target.value })
+                            }
+                          />
+                          <span className="mt-1 block text-xs text-slate-500">
+                            contact from catalog
+                          </span>
+                        </>
+                      )}
                     </td>
                     <td className="py-2 text-right">
                       <Button variant="ghost" onClick={() => removeRow(row)} title="Remove">
@@ -667,7 +462,7 @@ export default function HardwareTab({
                       {formatEuro(totals.perYear[year] ?? 0)}
                     </td>
                   ))}
-                  <td className="py-2.5 pr-2 text-right whitespace-nowrap">
+                  <td className="py-2.5 pr-6 text-right whitespace-nowrap">
                     {formatEuro(totals.grand)}
                   </td>
                   <td colSpan={2} />
@@ -679,10 +474,12 @@ export default function HardwareTab({
       </Card>
 
       {showCatalog && (
-        <CatalogModal
-          meta={meta}
+        <HardwareCatalogModal
           onClose={() => setShowCatalog(false)}
-          onChanged={reloadCatalog}
+          onChanged={() => {
+            reloadCatalog()
+            reload()
+          }}
         />
       )}
     </div>

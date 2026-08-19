@@ -46,11 +46,22 @@ def item_total(item: models.HardwareItem) -> float:
     return round(item.unit_cost * item.qty * occurrences, 2)
 
 
+def supplier_email(item: models.HardwareItem) -> str:
+    """Supplier contact lives with the vendor in the catalog; fall back to the
+    stored snapshot when the catalog entry no longer exists."""
+    if item.catalog_item is not None:
+        return item.catalog_item.supplier_email
+    return item.supplier_email
+
+
 def serialize_item(item: models.HardwareItem) -> dict:
     return {
         "id": item.id,
         "project_id": item.project_id,
-        "catalog_item_id": item.catalog_item_id,
+        # Report the link only while the catalog entry still exists: SQLite
+        # does not apply the FK's ON DELETE SET NULL unless pragmas are on,
+        # so a deleted vendor entry could otherwise leave a dangling id.
+        "catalog_item_id": item.catalog_item_id if item.catalog_item else None,
         "name": item.name,
         "aspice": item.aspice,
         "billing": item.billing,
@@ -58,7 +69,7 @@ def serialize_item(item: models.HardwareItem) -> dict:
         "qty": item.qty,
         "years": item_years(item),
         "supplier_name": item.supplier_name,
-        "supplier_email": item.supplier_email,
+        "supplier_email": supplier_email(item),
         "total": item_total(item),
     }
 

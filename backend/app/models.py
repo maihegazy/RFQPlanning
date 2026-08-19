@@ -126,6 +126,10 @@ class HardwareItem(Base):
     supplier_email: Mapped[str] = mapped_column(String(255), default="")
 
     project: Mapped["Project"] = relationship(back_populates="hardware_items")
+    # Supplier contact is owned by the catalog entry (vendor-coupled), so the
+    # plan reads it live from here; `supplier_email` is only the fallback
+    # snapshot kept for rows whose catalog entry was deleted.
+    catalog_item: Mapped["HardwareCatalogItem | None"] = relationship()
 
 
 class CustomTemplate(Base):

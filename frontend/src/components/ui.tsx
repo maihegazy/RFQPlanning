@@ -84,12 +84,20 @@ export function Modal({
   onClose,
   children,
   wide = false,
+  size,
 }: {
   title: string
   onClose: () => void
   children: ReactNode
   wide?: boolean
+  /** Overrides `wide`: md = default dialog, lg = form dialog, xl = data table */
+  size?: 'md' | 'lg' | 'xl'
 }) {
+  const maxWidth = {
+    md: 'max-w-lg',
+    lg: 'max-w-3xl',
+    xl: 'max-w-6xl',
+  }[size ?? (wide ? 'lg' : 'md')]
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-4 sm:p-10"
@@ -98,7 +106,7 @@ export function Modal({
       }}
     >
       <div
-        className={`w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} rounded-xl border border-slate-700 bg-slate-900 shadow-2xl`}
+        className={`w-full ${maxWidth} rounded-xl border border-slate-700 bg-slate-900 shadow-2xl`}
       >
         <div className="flex items-center justify-between border-b border-slate-800 px-5 py-3">
           <h3 className="text-base font-semibold">{title}</h3>

@@ -675,3 +675,40 @@ def test_hardware_catalog_seeded(client):
     for item in seed:
         assert item["supplier_name"], item["name"]
         assert item["unit_cost"] > 0, item["name"]
+
+
+def test_supplier_email_follows_catalog(client, project_id):
+    """Supplier contact is owned by the vendor's catalog entry."""
+    catalog = client.post("/api/hardware-catalog", json={
+        "name": "Scope Analyzer", "aspice": "SWE.6", "billing": "once",
+        "unit_cost": 500.0, "supplier_name": "Acme",
+        "supplier_email": "old@acme.example",
+    }).json()
+
+    item = client.post(f"/api/projects/{project_id}/hardware", json={
+        "catalog_item_id": catalog["id"],
+        "name": "Scope Analyzer", "aspice": "SWE.6", "billing": "once",
+        "unit_cost": 500.0, "qty": 1, "years": [2026],
+        "supplier_name": "Acme", "supplier_email": "old@acme.example",
+    }).json()
+    assert item["supplier_email"] == "old@acme.example"
+
+    # Updating the catalog contact updates every project that uses the item
+    client.put(f"/api/hardware-catalog/{catalog['id']}", json={
+        "name": "Scope Analyzer", "aspice": "SWE.6", "billing": "once",
+        "unit_cost": 500.0, "supplier_name": "Acme",
+        "supplier_email": "new@acme.example",
+    })
+    plan = client.get(f"/api/projects/{project_id}/hardware").json()
+    row = next(i for i in plan["items"] if i["id"] == item["id"])
+    assert row["supplier_email"] == "new@acme.example"
+    assert row["unit_cost"] == 500.0  # price stays snapshotted
+
+    # Without a catalog entry the row keeps its last known contact
+    client.delete(f"/api/hardware-catalog/{catalog['id']}")
+    plan = client.get(f"/api/projects/{project_id}/hardware").json()
+    row = next(i for i in plan["items"] if i["id"] == item["id"])
+    assert row["catalog_item_id"] is None
+    assert row["supplier_email"] == "old@acme.example"
+
+    client.delete(f"/api/hardware-items/{item['id']}")
