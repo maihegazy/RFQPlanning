@@ -17,6 +17,17 @@ TICKET_SIZES = ["small", "medium", "large"]
 # RFQ lifecycle statuses
 PROJECT_STATUSES = ["draft", "quoted", "won", "lost"]
 
+# ASPICE process areas used for hardware/tool planning
+ASPICE_PROCESSES = [
+    "SYS.1", "SYS.2", "SYS.3", "SYS.4", "SYS.5",
+    "SWE.1", "SWE.2", "SWE.3", "SWE.4", "SWE.5", "SWE.6",
+    "SUP.1", "SUP.8", "SUP.9", "SUP.10",
+    "MAN.3",
+]
+
+# Billing modes for hardware/tool items
+HARDWARE_BILLING = ["yearly", "once"]
+
 # Default rate-configuration values
 DEFAULT_SP_TO_HOURS = 4.0
 DEFAULT_HW_COST_PER_HOUR = 0.0

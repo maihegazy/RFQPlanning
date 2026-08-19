@@ -41,6 +41,8 @@ const meta: Meta = {
   ticket_sizes: ['small', 'medium', 'large'],
   project_statuses: ['draft', 'quoted', 'won', 'lost'],
   hours_per_fte_per_month: 160,
+  aspice_processes: ['SWE.3'],
+  hardware_billing: ['yearly', 'once'],
 }
 
 function project(id: number, name: string): Project {

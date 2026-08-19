@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 from .. import models, schemas
 from ..database import get_db
 from ..config import (
+    ASPICE_PROCESSES,
+    HARDWARE_BILLING,
     HOURS_PER_FTE_PER_MONTH,
     LEVELS,
     LOCATIONS,
@@ -73,6 +75,8 @@ def get_meta():
         "ticket_sizes": TICKET_SIZES,
         "project_statuses": PROJECT_STATUSES,
         "hours_per_fte_per_month": HOURS_PER_FTE_PER_MONTH,
+        "aspice_processes": ASPICE_PROCESSES,
+        "hardware_billing": HARDWARE_BILLING,
     }
 
 

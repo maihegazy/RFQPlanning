@@ -1,5 +1,10 @@
 import type {
   Feature,
+  HardwareCatalogItem,
+  HardwareCatalogItemInput,
+  HardwareItem,
+  HardwareItemInput,
+  HardwarePlan,
   LegacyMoney,
   Meta,
   MoneyBlob,
@@ -134,6 +139,37 @@ export const api = {
 
   resourcePlanXlsxUrl: (projectId: number) =>
     `${BASE}/api/projects/${projectId}/reports/resource-plan.xlsx`,
+
+  // Hardware planning (plaintext, separate from the encrypted vault)
+  listHardwareCatalog: () => request<HardwareCatalogItem[]>('/api/hardware-catalog'),
+  createHardwareCatalogItem: (data: HardwareCatalogItemInput) =>
+    request<HardwareCatalogItem>('/api/hardware-catalog', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updateHardwareCatalogItem: (id: number, data: HardwareCatalogItemInput) =>
+    request<HardwareCatalogItem>(`/api/hardware-catalog/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deleteHardwareCatalogItem: (id: number) =>
+    request<void>(`/api/hardware-catalog/${id}`, { method: 'DELETE' }),
+  getHardwarePlan: (projectId: number) =>
+    request<HardwarePlan>(`/api/projects/${projectId}/hardware`),
+  createHardwareItem: (projectId: number, data: HardwareItemInput) =>
+    request<HardwareItem>(`/api/projects/${projectId}/hardware`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updateHardwareItem: (itemId: number, data: HardwareItemInput) =>
+    request<HardwareItem>(`/api/hardware-items/${itemId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deleteHardwareItem: (itemId: number) =>
+    request<void>(`/api/hardware-items/${itemId}`, { method: 'DELETE' }),
+  hardwarePlanXlsxUrl: (projectId: number) =>
+    `${BASE}/api/projects/${projectId}/reports/hardware-plan.xlsx`,
 
   // Vault & end-to-end encrypted money
   getVault: () => request<VaultInfo>('/api/vault'),

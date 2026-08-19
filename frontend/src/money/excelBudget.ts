@@ -8,7 +8,7 @@
 
 import type ExcelJS from 'exceljs'
 import { downloadBlob } from '../download'
-import type { Project, RateConfig } from '../types'
+import type { HardwarePlan, Project, RateConfig } from '../types'
 import type { BudgetPlan, MoneyConfig } from './types'
 
 const YELLOW = 'FFFFFF00'
@@ -349,12 +349,73 @@ function writeConfigSheet(
   for (let c = 5; c < 4 + quotaYears.length; c++) sheet.getColumn(c).width = 15
 }
 
+function writeHardwareSheet(
+  wb: ExcelJS.Workbook,
+  project: Project,
+  hardware: HardwarePlan,
+) {
+  const sheet = wb.addWorksheet('Hardware')
+  const years: number[] = []
+  for (let y = project.start_year; y <= project.end_year; y++) years.push(y)
+
+  const headers = [
+    'ASPICE', 'Item', 'Yearly/Once', 'Unit Cost', 'Qty',
+    ...years.map(String), 'Total', 'Supplier', 'Supplier Email',
+  ]
+  headers.forEach((h, col) => setCell(sheet, 0, col, h, { bold: true, bg: YELLOW }))
+
+  const yearOffset = 5
+  const totalCol = yearOffset + years.length
+  hardware.items.forEach((item, i) => {
+    const row = i + 1
+    setCell(sheet, row, 0, item.aspice, { align: 'left' })
+    setCell(sheet, row, 1, item.name, { align: 'left' })
+    setCell(sheet, row, 2, item.billing, { align: 'left' })
+    setCell(sheet, row, 3, item.unit_cost, { numFmt: EURO_FMT })
+    setCell(sheet, row, 4, item.qty)
+    const perOccurrence = item.unit_cost * item.qty
+    const itemYears =
+      item.billing === 'once'
+        ? [item.years[0] ?? project.start_year]
+        : item.years
+    years.forEach((year, offset) => {
+      const value = itemYears.includes(year) ? perOccurrence : ''
+      setCell(sheet, row, yearOffset + offset, value, {
+        numFmt: value === '' ? undefined : EURO_FMT,
+      })
+    })
+    setCell(sheet, row, totalCol, item.total, { numFmt: EURO_FMT })
+    setCell(sheet, row, totalCol + 1, item.supplier_name, { align: 'left' })
+    setCell(sheet, row, totalCol + 2, item.supplier_email, { align: 'left' })
+  })
+
+  const footer = hardware.items.length + 1
+  setCell(sheet, footer, 0, 'TOTAL', { bold: true, bg: GRAY })
+  for (let col = 1; col < yearOffset; col++) setCell(sheet, footer, col, '', { bg: GRAY })
+  years.forEach((year, offset) => {
+    setCell(sheet, footer, yearOffset + offset, hardware.per_year[String(year)] ?? 0, {
+      bold: true, bg: GRAY, numFmt: EURO_FMT,
+    })
+  })
+  setCell(sheet, footer, totalCol, hardware.grand_total, {
+    bold: true, bg: GRAY, numFmt: EURO_FMT,
+  })
+  setCell(sheet, footer, totalCol + 1, '', { bg: GRAY })
+  setCell(sheet, footer, totalCol + 2, '', { bg: GRAY })
+
+  const widths = [10, 32, 12, 14, 6, ...years.map(() => 14), 14, 24, 30]
+  widths.forEach((w, idx) => {
+    sheet.getColumn(idx + 1).width = w
+  })
+}
+
 /** Build the workbook and trigger a browser download. */
 export async function downloadBudgetWorkbook(
   project: Project,
   money: MoneyConfig,
   rates: RateConfig,
   plan: BudgetPlan,
+  hardware?: HardwarePlan | null,
 ): Promise<void> {
   const { Workbook } = await import('exceljs') // lazy: only loaded on export
   const wb = new Workbook()
@@ -362,6 +423,9 @@ export async function downloadBudgetWorkbook(
   writeCostProfitSheet(wb, plan)
   for (const pivot of plan.yearly_pivots) {
     writePivotSheet(wb, pivot.year, pivot)
+  }
+  if (hardware && hardware.items.length > 0) {
+    writeHardwareSheet(wb, project, hardware)
   }
 
   const buffer = await wb.xlsx.writeBuffer()

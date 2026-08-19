@@ -127,6 +127,54 @@ export interface Meta {
   ticket_sizes: string[]
   project_statuses: ProjectStatus[]
   hours_per_fte_per_month: number
+  aspice_processes: string[]
+  hardware_billing: HardwareBilling[]
+}
+
+export type HardwareBilling = 'yearly' | 'once'
+
+export interface HardwareCatalogItem {
+  id: number
+  name: string
+  aspice: string
+  billing: HardwareBilling
+  unit_cost: number
+  supplier_name: string
+  supplier_email: string
+  created_at: string
+}
+
+export interface HardwareCatalogItemInput {
+  name: string
+  aspice: string
+  billing: HardwareBilling
+  unit_cost: number
+  supplier_name: string
+  supplier_email: string
+}
+
+export interface HardwareItemInput {
+  catalog_item_id: number | null
+  name: string
+  aspice: string
+  billing: HardwareBilling
+  unit_cost: number
+  qty: number
+  years: number[]
+  supplier_name: string
+  supplier_email: string
+}
+
+export interface HardwareItem extends HardwareItemInput {
+  id: number
+  project_id: number
+  total: number
+}
+
+export interface HardwarePlan {
+  items: HardwareItem[]
+  per_year: Record<string, number>
+  grand_total: number
 }
 
 export interface PortfolioCapacity {

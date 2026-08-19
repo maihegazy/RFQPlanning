@@ -103,6 +103,30 @@ expected failures; each later fix must remove its matching marker.
   matching the original layout).
 - **Import/export** — projects round-trip through the desktop app's JSON format
   (`POST /api/projects/import`, `GET /api/projects/{id}/export`).
+- **Hardware planning** — the Hardware tab plans the tools and equipment a
+  quotation needs: each row has an ASPICE process, `yearly` or `once` billing, a
+  unit cost, a quantity (use 0 to keep an alternative on the sheet without
+  costing it) and a checkbox per project year. Yearly rows are charged for every
+  selected year, one-time purchases once in their selected year. Rows can be
+  typed in ad hoc or picked from the shared **hardware catalog**, which
+  snapshots its values into the project so later catalog price changes never
+  alter an existing quotation. Supplier contact details belong to the vendor's
+  catalog entry — project rows display the email read-only and always show the
+  current one, so updating an address in the catalog updates every plan using
+  it. The catalog manager is reachable from the Hardware tab and from the
+  home page. Hardware totals are reported on their own (they
+  do not feed the cost-profit analysis) and export both as a standalone workbook
+  and as a Hardware sheet in the budget workbook. Unlike financial data, the
+  hardware plan is stored in plaintext.
+- **Hardware catalog seed** — a standard catalog of ~75 supplier items (Vector,
+  MathWorks, ETAS, Lauterbach, TASKING, tracetronic, IBM, Atlassian, JFrog and
+  others) is installed by migration `20260818_0003` from
+  `backend/app/data/hardware_catalog_seed.json`. Rented/subscription items are
+  seeded as `yearly`, perpetual licenses and hardware purchases as `once`, and
+  each item gets a default ASPICE process that can be changed in the UI. Run
+  `python3 scripts/seed_hardware_catalog.py` from `backend/` to restore standard
+  entries that were deleted or to load newly added seed rows; seeding never
+  duplicates or overwrites existing catalog items.
 
 ## REST API overview
 
@@ -125,6 +149,11 @@ expected failures; each later fix must remove its matching marker.
 | GET      | `/api/projects/{id}/reports/resource-plan.xlsx` | Resource plan workbook           |
 | POST     | `/api/projects/{id}/clone`                      | Duplicate / create scenario      |
 | GET      | `/api/portfolio/capacity`                       | Cross-project FTE capacity       |
+| GET/POST | `/api/hardware-catalog`                         | List / add catalog items         |
+| PUT/DELETE | `/api/hardware-catalog/{id}`                  | Update / delete a catalog item   |
+| GET/POST | `/api/projects/{id}/hardware`                   | Hardware plan / add an item      |
+| PUT/DELETE | `/api/hardware-items/{id}`                    | Update / delete a hardware item  |
+| GET      | `/api/projects/{id}/reports/hardware-plan.xlsx` | Hardware plan workbook           |
 
 ## Project structure
 

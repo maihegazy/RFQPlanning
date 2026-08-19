@@ -527,3 +527,188 @@ def test_export_import_roundtrip(client, project_id):
     pid = resp.json()["id"]
     resp = client.get(f"/api/projects/{pid}/financial-data/legacy")
     assert resp.json()["has_data"] is False
+
+
+def test_hardware_planning(client, project_id):
+    # Meta exposes the ASPICE list and billing modes
+    meta = client.get("/api/meta").json()
+    assert "SWE.3" in meta["aspice_processes"]
+    assert meta["hardware_billing"] == ["yearly", "once"]
+
+    # Master catalog CRUD
+    resp = client.post("/api/hardware-catalog", json={
+        "name": "Vector CANoe License", "aspice": "SWE.5",
+        "billing": "yearly", "unit_cost": 12000.0,
+        "supplier_name": "Vector", "supplier_email": "sales@vector.com",
+    })
+    assert resp.status_code == 201, resp.text
+    catalog_id = resp.json()["id"]
+
+    resp = client.post("/api/hardware-catalog", json={
+        "name": "Debug Probe", "aspice": "NOPE", "billing": "yearly",
+        "unit_cost": 1.0,
+    })
+    assert resp.status_code == 422  # invalid ASPICE process
+
+    resp = client.put(f"/api/hardware-catalog/{catalog_id}", json={
+        "name": "Vector CANoe License", "aspice": "SWE.5",
+        "billing": "yearly", "unit_cost": 12500.0,
+        "supplier_name": "Vector", "supplier_email": "sales@vector.com",
+    })
+    assert resp.status_code == 200
+    assert resp.json()["unit_cost"] == 12500.0
+
+    # Project item snapshotted from the catalog: yearly x 2 years x qty 2
+    resp = client.post(f"/api/projects/{project_id}/hardware", json={
+        "catalog_item_id": catalog_id,
+        "name": "Vector CANoe License", "aspice": "SWE.5",
+        "billing": "yearly", "unit_cost": 12500.0, "qty": 2,
+        "years": [2026, 2027],
+        "supplier_name": "Vector", "supplier_email": "sales@vector.com",
+    })
+    assert resp.status_code == 201, resp.text
+    yearly_item = resp.json()
+    assert yearly_item["total"] == 50000.0
+
+    # Ad-hoc one-time purchase
+    resp = client.post(f"/api/projects/{project_id}/hardware", json={
+        "name": "HIL Bench", "aspice": "SWE.6", "billing": "once",
+        "unit_cost": 80000.0, "qty": 1, "years": [2026],
+    })
+    assert resp.status_code == 201
+    once_item = resp.json()
+    assert once_item["total"] == 80000.0
+
+    # once must not span multiple years
+    resp = client.post(f"/api/projects/{project_id}/hardware", json={
+        "name": "Bad", "billing": "once", "unit_cost": 1.0, "qty": 1,
+        "years": [2026, 2027],
+    })
+    assert resp.status_code == 422
+
+    # years outside the project timeline are rejected
+    resp = client.post(f"/api/projects/{project_id}/hardware", json={
+        "name": "Bad", "billing": "yearly", "unit_cost": 1.0, "qty": 1,
+        "years": [2030],
+    })
+    assert resp.status_code == 422
+
+    # Plan summary: per-year and grand totals
+    plan = client.get(f"/api/projects/{project_id}/hardware").json()
+    assert len(plan["items"]) == 2
+    assert plan["per_year"] == {"2026": 105000.0, "2027": 25000.0}
+    assert plan["grand_total"] == 130000.0
+
+    # Update the yearly item down to one year
+    resp = client.put(f"/api/hardware-items/{yearly_item['id']}", json={
+        "name": "Vector CANoe License", "aspice": "SWE.5",
+        "billing": "yearly", "unit_cost": 12500.0, "qty": 2,
+        "years": [2027],
+        "supplier_name": "Vector", "supplier_email": "sales@vector.com",
+    })
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 25000.0
+
+    # Deleting the catalog entry keeps the project row (snapshot semantics)
+    resp = client.delete(f"/api/hardware-catalog/{catalog_id}")
+    assert resp.status_code == 204
+    plan = client.get(f"/api/projects/{project_id}/hardware").json()
+    assert len(plan["items"]) == 2
+    assert plan["items"][0]["catalog_item_id"] is None
+
+    # Excel export
+    resp = client.get(f"/api/projects/{project_id}/reports/hardware-plan.xlsx")
+    assert resp.status_code == 200
+    assert resp.content[:2] == b"PK"
+
+    # Cloning copies the hardware plan
+    resp = client.post(f"/api/projects/{project_id}/clone", json={
+        "name": "HW Scenario", "as_scenario": True,
+    })
+    assert resp.status_code == 201
+    clone_id = resp.json()["id"]
+    clone_plan = client.get(f"/api/projects/{clone_id}/hardware").json()
+    assert clone_plan["grand_total"] == plan["grand_total"]
+
+    # Deleting an item works
+    resp = client.delete(f"/api/hardware-items/{once_item['id']}")
+    assert resp.status_code == 204
+    plan = client.get(f"/api/projects/{project_id}/hardware").json()
+    assert len(plan["items"]) == 1
+
+
+def test_hardware_catalog_seeded(client):
+    """The standard procurement catalog ships with the app and seeds cleanly."""
+    from app.database import SessionLocal
+    from app.services.hardware_seed import load_seed_items, seed_hardware_catalog
+
+    seed = load_seed_items()
+    assert len(seed) >= 70
+    names = {item["name"] for item in seed}
+    assert {"CANoe PRO (perpetual)", "MATLAB (floating, perpetual)", "Jira"} <= names
+
+    with SessionLocal() as db:
+        seed_hardware_catalog(db)
+        # Seeding twice must not duplicate anything
+        assert seed_hardware_catalog(db) == 0
+
+    catalog = client.get("/api/hardware-catalog").json()
+    by_name = {item["name"]: item for item in catalog}
+    assert names <= set(by_name)
+    assert len(catalog) == len(by_name)  # no duplicate names
+
+    canoe = by_name["CANoe PRO (perpetual)"]
+    assert canoe["unit_cost"] == 11660.0
+    assert canoe["billing"] == "once"  # perpetual purchase
+    assert canoe["supplier_name"] == "Vector"
+    assert canoe["aspice"] in {
+        "SYS.1", "SYS.2", "SYS.3", "SYS.4", "SYS.5",
+        "SWE.1", "SWE.2", "SWE.3", "SWE.4", "SWE.5", "SWE.6",
+        "SUP.1", "SUP.8", "SUP.9", "SUP.10", "MAN.3",
+    }
+
+    maintenance = by_name["Maintenance CANoe PRO"]
+    assert maintenance["billing"] == "yearly"  # rented/recurring
+    assert maintenance["unit_cost"] == 2332.0
+
+    # Every seed row carries a supplier and a positive price
+    for item in seed:
+        assert item["supplier_name"], item["name"]
+        assert item["unit_cost"] > 0, item["name"]
+
+
+def test_supplier_email_follows_catalog(client, project_id):
+    """Supplier contact is owned by the vendor's catalog entry."""
+    catalog = client.post("/api/hardware-catalog", json={
+        "name": "Scope Analyzer", "aspice": "SWE.6", "billing": "once",
+        "unit_cost": 500.0, "supplier_name": "Acme",
+        "supplier_email": "old@acme.example",
+    }).json()
+
+    item = client.post(f"/api/projects/{project_id}/hardware", json={
+        "catalog_item_id": catalog["id"],
+        "name": "Scope Analyzer", "aspice": "SWE.6", "billing": "once",
+        "unit_cost": 500.0, "qty": 1, "years": [2026],
+        "supplier_name": "Acme", "supplier_email": "old@acme.example",
+    }).json()
+    assert item["supplier_email"] == "old@acme.example"
+
+    # Updating the catalog contact updates every project that uses the item
+    client.put(f"/api/hardware-catalog/{catalog['id']}", json={
+        "name": "Scope Analyzer", "aspice": "SWE.6", "billing": "once",
+        "unit_cost": 500.0, "supplier_name": "Acme",
+        "supplier_email": "new@acme.example",
+    })
+    plan = client.get(f"/api/projects/{project_id}/hardware").json()
+    row = next(i for i in plan["items"] if i["id"] == item["id"])
+    assert row["supplier_email"] == "new@acme.example"
+    assert row["unit_cost"] == 500.0  # price stays snapshotted
+
+    # Without a catalog entry the row keeps its last known contact
+    client.delete(f"/api/hardware-catalog/{catalog['id']}")
+    plan = client.get(f"/api/projects/{project_id}/hardware").json()
+    row = next(i for i in plan["items"] if i["id"] == item["id"])
+    assert row["catalog_item_id"] is None
+    assert row["supplier_email"] == "old@acme.example"
+
+    client.delete(f"/api/hardware-items/{item['id']}")
