@@ -7,19 +7,30 @@ import { useVault } from './VaultContext'
 export function VaultStatusButton() {
   const { status, lock } = useVault()
   const [showDialog, setShowDialog] = useState(false)
+  const [showChange, setShowChange] = useState(false)
 
   if (status === 'loading') return null
 
   return (
     <>
       {status === 'unlocked' ? (
-        <button
-          onClick={lock}
-          className="flex items-center gap-1.5 rounded-lg border border-emerald-800 bg-emerald-950/50 px-3 py-1.5 text-sm text-emerald-300 hover:bg-emerald-900/50"
-          title="Financial data is unlocked in this session. Click to lock."
-        >
-          🔓 Financial data unlocked
-        </button>
+        <span className="flex items-center overflow-hidden rounded-lg border border-emerald-800 bg-emerald-950/50 text-sm text-emerald-300">
+          <button
+            onClick={lock}
+            className="px-3 py-1.5 hover:bg-emerald-900/50"
+            title="Financial data is unlocked in this session. Click to lock."
+          >
+            🔓 Financial data unlocked
+          </button>
+          <button
+            onClick={() => setShowChange(true)}
+            className="border-l border-emerald-800 px-2 py-1.5 hover:bg-emerald-900/50"
+            title="Change the vault passphrase"
+            aria-label="Change passphrase"
+          >
+            ⚙
+          </button>
+        </span>
       ) : (
         <button
           onClick={() => setShowDialog(true)}
@@ -30,7 +41,144 @@ export function VaultStatusButton() {
         </button>
       )}
       {showDialog && <VaultDialog onClose={() => setShowDialog(false)} />}
+      {showChange && <ChangePassphraseDialog onClose={() => setShowChange(false)} />}
     </>
+  )
+}
+
+/** Change the vault passphrase: re-wraps the data key, never the data. */
+export function ChangePassphraseDialog({ onClose }: { onClose: () => void }) {
+  const { changePassphrase } = useVault()
+  const [mode, setMode] = useState<'passphrase' | 'recovery'>('passphrase')
+  const [current, setCurrent] = useState('')
+  const [recoveryFile, setRecoveryFile] = useState('')
+  const [next, setNext] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [done, setDone] = useState(false)
+  const recoveryInput = useRef<HTMLInputElement>(null)
+
+  const submit = async () => {
+    if (next.length < 8) {
+      setError('New passphrase must be at least 8 characters')
+      return
+    }
+    if (next !== confirm) {
+      setError('New passphrases do not match')
+      return
+    }
+    if (mode === 'recovery' && !recoveryFile) {
+      setError('Select your rfq-recovery-key.json file')
+      return
+    }
+    setBusy(true)
+    setError('')
+    try {
+      await changePassphrase(
+        mode === 'passphrase' ? { passphrase: current } : { recoveryFile },
+        next,
+      )
+      setDone(true)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal title="Change Vault Passphrase" onClose={onClose}>
+      {done ? (
+        <div className="space-y-4">
+          <div className="rounded-lg border border-emerald-800 bg-emerald-950/50 px-4 py-3 text-sm text-emerald-300">
+            ✓ Passphrase changed. Everyone who uses this vault needs the new one from
+            now on. Your existing recovery key file still works — it is unchanged.
+          </div>
+          <div className="flex justify-end">
+            <Button onClick={onClose}>Done</Button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <p className="text-sm leading-relaxed text-slate-400">
+            Only the key is re-wrapped — no project data is re-encrypted, so this is
+            instant however many projects you have. There is one shared vault, so the
+            new passphrase applies to everyone who unlocks financial data.
+          </p>
+          {error && <ErrorBanner message={error} />}
+
+          <div className="flex gap-1 rounded-lg bg-slate-800 p-1 text-sm">
+            {(['passphrase', 'recovery'] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => {
+                  setMode(m)
+                  setError('')
+                }}
+                className={`flex-1 rounded-md px-3 py-1.5 transition-colors ${
+                  mode === m ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {m === 'passphrase' ? 'I know the current passphrase' : 'Use the recovery file'}
+              </button>
+            ))}
+          </div>
+
+          {mode === 'passphrase' ? (
+            <div>
+              <Label>Current passphrase</Label>
+              <Input
+                type="password"
+                value={current}
+                onChange={(e) => setCurrent(e.target.value)}
+                autoFocus
+              />
+            </div>
+          ) : (
+            <div>
+              <Label>Recovery key file</Label>
+              <input
+                ref={recoveryInput}
+                type="file"
+                accept=".json"
+                className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0]
+                  if (file) setRecoveryFile(await file.text())
+                  e.target.value = ''
+                }}
+              />
+              <Button variant="secondary" onClick={() => recoveryInput.current?.click()}>
+                {recoveryFile ? '✓ Recovery file loaded' : 'Choose rfq-recovery-key.json'}
+              </Button>
+            </div>
+          )}
+
+          <div>
+            <Label>New passphrase (min. 8 characters)</Label>
+            <Input type="password" value={next} onChange={(e) => setNext(e.target.value)} />
+          </div>
+          <div>
+            <Label>Confirm new passphrase</Label>
+            <Input
+              type="password"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+            />
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button onClick={submit} disabled={busy}>
+              {busy ? 'Changing…' : 'Change Passphrase'}
+            </Button>
+          </div>
+        </div>
+      )}
+    </Modal>
   )
 }
 
