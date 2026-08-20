@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  benchesForUsers,
   buildAutoPlanRows,
   countEngineeringUsers,
   isProjectLead,
@@ -106,6 +107,27 @@ describe('headcount', () => {
     const head = countEngineeringUsers(project([role({ name: 'Project Lead (PL)' })]))
     expect(head.users).toBe(0)
     expect(head.engineerFtes).toBe(0)
+  })
+})
+
+describe('bench sizing', () => {
+  it('gives everyone their own bench by default', () => {
+    expect(benchesForUsers(23, 1)).toBe(23)
+  })
+
+  it('divides users across shared benches, rounding up', () => {
+    expect(benchesForUsers(23, 2)).toBe(12)
+    expect(benchesForUsers(23, 3)).toBe(8)
+    expect(benchesForUsers(6, 3)).toBe(2)
+  })
+
+  it('never divides by zero or a fraction of a user', () => {
+    expect(benchesForUsers(10, 0)).toBe(10)
+    expect(benchesForUsers(10, -4)).toBe(10)
+  })
+
+  it('needs no benches without users', () => {
+    expect(benchesForUsers(0, 2)).toBe(0)
   })
 })
 

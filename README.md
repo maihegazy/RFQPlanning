@@ -119,8 +119,8 @@ expected failures; each later fix must remove its matching marker.
   current one, so updating an address in the catalog updates every plan using
   it. The catalog manager is reachable from the Hardware tab and from the
   home page. **Generate Plan** sizes a whole plan automatically: it counts
-  engineering FTEs (excluding the Project Lead) and rounds up to users, applies
-  a benches-per-user factor, and equips every bench with a PC, power supply,
+  engineering FTEs (excluding the Project Lead) and rounds up to users, divides
+  them by the users-per-bench factor, and equips every bench with a PC, power supply,
   debugger (Lauterbach or UDE) and a Vector box (CAN, LIN or Ethernet), adding
   an AMTS board to each AMTS bench and one each of the project licences
   (compiler, Polyspace, VectorCAST, DaVinci Configurator and Developer). Every

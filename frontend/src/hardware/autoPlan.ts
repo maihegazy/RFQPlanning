@@ -74,6 +74,13 @@ function round2(value: number): number {
   return Math.round(value * 100) / 100
 }
 
+/** Benches needed when `usersPerBench` engineers share one bench. */
+export function benchesForUsers(users: number, usersPerBench: number): number {
+  if (users <= 0) return 0
+  const share = Math.max(1, usersPerBench)
+  return Math.ceil(users / share)
+}
+
 // ---------------------------------------------------------------------------
 // Catalog choices
 // ---------------------------------------------------------------------------

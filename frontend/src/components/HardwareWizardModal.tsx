@@ -6,6 +6,7 @@ import { formatEuro } from '../utils'
 import {
   BENCH_SLOTS,
   LICENCE_SLOTS,
+  benchesForUsers,
   buildAutoPlanRows,
   countEngineeringUsers,
   planTotal,
@@ -43,7 +44,7 @@ export default function HardwareWizardModal({
 
   const head = useMemo(() => countEngineeringUsers(project), [project])
   const [users, setUsers] = useState(head.users)
-  const [benchesPerUser, setBenchesPerUser] = useState(1)
+  const [usersPerBench, setUsersPerBench] = useState(1)
   const [benches, setBenches] = useState(head.users)
   const [benchesTouched, setBenchesTouched] = useState(false)
   const [amtsBenches, setAmtsBenches] = useState(0)
@@ -80,10 +81,10 @@ export default function HardwareWizardModal({
       .catch((e) => setError(e.message))
   }, [])
 
-  // Bench count follows users × benches-per-user until the user overrides it
+  // Bench count follows users ÷ users-per-bench until the user overrides it
   useEffect(() => {
-    if (!benchesTouched) setBenches(Math.ceil(users * benchesPerUser))
-  }, [users, benchesPerUser, benchesTouched])
+    if (!benchesTouched) setBenches(benchesForUsers(users, usersPerBench))
+  }, [users, usersPerBench, benchesTouched])
 
   const setDebuggerVendor = (choice: DebuggerChoice) => {
     setDebuggerChoice(choice)
@@ -187,7 +188,11 @@ export default function HardwareWizardModal({
                   {head.excluded.length > 0 && (
                     <> — excluding {head.excluded.join(', ')} ({head.leadFtes} FTE)</>
                   )}
-                  . Rounded up to {head.users} user{head.users === 1 ? '' : 's'}.
+                  . Rounded up to {head.users} user{head.users === 1 ? '' : 's'}
+                  {usersPerBench > 1 && (
+                    <>, shared {usersPerBench} per bench</>
+                  )}
+                  .
                 </p>
                 <div className="grid grid-cols-3 gap-3">
                   <div>
@@ -200,15 +205,15 @@ export default function HardwareWizardModal({
                     />
                   </div>
                   <div>
-                    <Label>Benches per user</Label>
+                    <Label>Users per bench</Label>
                     <Input
                       type="number"
-                      min={0}
-                      step="0.5"
-                      value={benchesPerUser}
+                      min={1}
+                      step="1"
+                      value={usersPerBench}
                       onChange={(e) => {
                         setBenchesTouched(false)
-                        setBenchesPerUser(Math.max(0, Number(e.target.value)))
+                        setUsersPerBench(Math.max(1, Math.floor(Number(e.target.value) || 1)))
                       }}
                     />
                   </div>
