@@ -118,7 +118,14 @@ expected failures; each later fix must remove its matching marker.
   catalog entry — project rows display the email read-only and always show the
   current one, so updating an address in the catalog updates every plan using
   it. The catalog manager is reachable from the Hardware tab and from the
-  home page. Hardware totals are reported on their own (they
+  home page. **Generate Plan** sizes a whole plan automatically: it counts
+  engineering FTEs (excluding the Project Lead) and rounds up to users, applies
+  a benches-per-user factor, and equips every bench with a PC, power supply,
+  debugger (Lauterbach or UDE) and a Vector box (CAN, LIN or Ethernet), adding
+  an AMTS board to each AMTS bench and one each of the project licences
+  (compiler, Polyspace, VectorCAST, DaVinci Configurator and Developer). Every
+  generated row is an ordinary row afterwards, so it stays editable.
+  Hardware totals are reported on their own (they
   do not feed the cost-profit analysis) and export both as a standalone workbook
   and as a Hardware sheet in the budget workbook. Unlike financial data, the
   hardware plan is stored in plaintext.
