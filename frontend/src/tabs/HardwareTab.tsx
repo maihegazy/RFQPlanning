@@ -9,6 +9,7 @@ import type {
 } from '../types'
 import { Button, Card, EmptyState, ErrorBanner, Input, Select, Spinner } from '../components/ui'
 import HardwareCatalogModal from '../components/HardwareCatalogModal'
+import HardwareWizardModal from '../components/HardwareWizardModal'
 import { downloadBlob } from '../download'
 import { formatEuro, projectYears } from '../utils'
 
@@ -49,6 +50,7 @@ export default function HardwareTab({
   const [deletedIds, setDeletedIds] = useState<number[]>([])
   const [catalog, setCatalog] = useState<HardwareCatalogItem[]>([])
   const [showCatalog, setShowCatalog] = useState(false)
+  const [showWizard, setShowWizard] = useState(false)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<number | null>(null)
@@ -261,6 +263,9 @@ export default function HardwareTab({
                 ))}
               </Select>
             </div>
+            <Button variant="secondary" onClick={() => setShowWizard(true)}>
+              ✨ Generate Plan
+            </Button>
             <Button variant="secondary" onClick={addBlankRow}>
               + Add Item
             </Button>
@@ -472,6 +477,18 @@ export default function HardwareTab({
           </div>
         )}
       </Card>
+
+      {showWizard && (
+        <HardwareWizardModal
+          project={project}
+          existingCount={rows.length}
+          onClose={() => setShowWizard(false)}
+          onGenerated={() => {
+            setSavedAt(null)
+            reload()
+          }}
+        />
+      )}
 
       {showCatalog && (
         <HardwareCatalogModal
