@@ -117,8 +117,10 @@ expected failures; each later fix must remove its matching marker.
   alter an existing quotation. Supplier contact details belong to the vendor's
   catalog entry — project rows display the email read-only and always show the
   current one, so updating an address in the catalog updates every plan using
-  it. The catalog manager is reachable from the Hardware tab and from the
-  home page. **Generate Plan** sizes a whole plan automatically: it counts
+  it. The catalog is its own portal module at `/hardware-catalog` (linked from
+  the projects home page) and is also reachable as a modal from the Hardware
+  planning tab, so a catalog can be maintained without leaving a project — both
+  render the same editor (`HardwareCatalogManager`). **Generate Plan** sizes a whole plan automatically: it counts
   engineering FTEs (excluding the Project Lead) and rounds up to users, divides
   them by the users-per-bench factor, and equips every bench with a PC, power supply,
   debugger (Lauterbach or UDE) and a Vector box (CAN, LIN or Ethernet), adding

@@ -7,7 +7,6 @@ import { MONTH_NAMES } from '../utils'
 import { downloadBlob } from '../download'
 import { useVault } from '../vault/VaultContext'
 import { VaultDialog, VaultStatusButton } from '../vault/VaultGate'
-import HardwareCatalogModal from '../components/HardwareCatalogModal'
 import { emptyMoneyConfig, type MoneyConfig } from '../money/types'
 
 type LegacyImport = {
@@ -162,7 +161,6 @@ export default function ProjectsPage() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [showCreate, setShowCreate] = useState(false)
-  const [showCatalog, setShowCatalog] = useState(false)
   const [statusFilter, setStatusFilter] = useState<string>('')
   const [search, setSearch] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('updated')
@@ -408,9 +406,9 @@ export default function ProjectsPage() {
         <Link to="/portfolio">
           <Button variant="secondary">📊 Portfolio</Button>
         </Link>
-        <Button variant="secondary" onClick={() => setShowCatalog(true)}>
-          🔧 Hardware Catalog
-        </Button>
+        <Link to="/hardware-catalog">
+          <Button variant="secondary">🔧 Hardware Catalog</Button>
+        </Link>
         <input
           ref={fileInput}
           type="file"
@@ -514,8 +512,6 @@ export default function ProjectsPage() {
           }}
         />
       )}
-      {showCatalog && <HardwareCatalogModal onClose={() => setShowCatalog(false)} />}
-
       {showImportVault && (
         <VaultDialog
           onUnlocked={() => setImportReady(true)}
