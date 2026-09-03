@@ -626,6 +626,7 @@ function NewProjectModal({
           <div>
             <Label>Name</Label>
             <Input
+              aria-label="Name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Platform HW 2026"
@@ -636,6 +637,7 @@ function NewProjectModal({
           <div>
             <Label>Company</Label>
             <Input
+              aria-label="Company"
               value={company}
               onChange={(e) => setCompany(e.target.value)}
               placeholder="Owning entity"
@@ -646,6 +648,7 @@ function NewProjectModal({
         <div>
           <Label>Description</Label>
           <textarea
+            aria-label="Description"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={3}
@@ -658,6 +661,7 @@ function NewProjectModal({
           <div>
             <Label>Assets budget (€)</Label>
             <Input
+              aria-label="Assets budget (€)"
               type="number"
               step="0.01"
               min="0"
@@ -668,6 +672,7 @@ function NewProjectModal({
           <div>
             <Label>Licenses budget (€)</Label>
             <Input
+              aria-label="Licenses budget (€)"
               type="number"
               step="0.01"
               min="0"
@@ -678,6 +683,7 @@ function NewProjectModal({
           <div>
             <Label>Portal reference</Label>
             <Input
+              aria-label="Portal reference"
               value={portalReference}
               onChange={(e) => setPortalReference(e.target.value)}
               placeholder="Optional"

@@ -107,6 +107,7 @@ function TextField({
     <div>
       <Label>{label}</Label>
       <Input
+        aria-label={label}
         type={type}
         value={value}
         placeholder={placeholder}

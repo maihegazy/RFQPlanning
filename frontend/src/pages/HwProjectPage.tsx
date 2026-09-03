@@ -693,6 +693,7 @@ function EditProjectModal({
           <div>
             <Label>Project name</Label>
             <Input
+              aria-label="Project name"
               value={form.name}
               onChange={(e) => patch({ name: e.target.value })}
               autoFocus
@@ -700,13 +701,16 @@ function EditProjectModal({
           </div>
           <div>
             <Label>Company</Label>
-            <Input value={form.company} onChange={(e) => patch({ company: e.target.value })} />
+            <Input
+              aria-label="Company"
+              value={form.company} onChange={(e) => patch({ company: e.target.value })} />
           </div>
         </div>
 
         <div>
           <Label>Description</Label>
           <textarea
+            aria-label="Description"
             rows={3}
             value={form.description}
             onChange={(e) => patch({ description: e.target.value })}
@@ -719,6 +723,7 @@ function EditProjectModal({
           <div>
             <Label>Assets budget (€)</Label>
             <Input
+              aria-label="Assets budget (€)"
               type="number"
               min={0}
               step="0.01"
@@ -730,6 +735,7 @@ function EditProjectModal({
           <div>
             <Label>Licenses budget (€)</Label>
             <Input
+              aria-label="Licenses budget (€)"
               type="number"
               min={0}
               step="0.01"
@@ -743,6 +749,7 @@ function EditProjectModal({
         <div>
           <Label>Portal reference</Label>
           <Input
+            aria-label="Portal reference"
             value={form.portal_reference}
             onChange={(e) => patch({ portal_reference: e.target.value })}
             placeholder="Reserved for the company portal's project id"
