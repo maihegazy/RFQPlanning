@@ -431,7 +431,9 @@ export default function ProjectsPage() {
             }`}
           >
             {tab.label}
-            <span className={statusFilter === tab.key ? 'ml-1.5 text-indigo-200' : 'ml-1.5 text-slate-500'}>
+            {/* The count sits on the solid indigo pill, so it stays white-on-accent
+                in both themes rather than following the accent text ramp. */}
+            <span className={statusFilter === tab.key ? 'ml-1.5 text-white/70' : 'ml-1.5 text-slate-500'}>
               {counts[tab.key] ?? 0}
             </span>
           </button>

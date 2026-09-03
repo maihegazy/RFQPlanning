@@ -1,6 +1,20 @@
 import { useEffect, useState } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
+import {
+  ChevronDown,
+  ChevronUp,
+  CircleUser,
+  ClipboardList,
+  Cpu,
+  Menu,
+  Moon,
+  Sun,
+  type LucideIcon,
+} from 'lucide-react'
 import { useTheme } from '../theme/ThemeContext'
+
+/** Monochrome line icons: they inherit `currentColor`, so the theme drives them. */
+type NavIcon = LucideIcon
 
 interface NavLeaf {
   to: string
@@ -12,7 +26,7 @@ interface NavLeaf {
 interface NavGroup {
   key: string
   label: string
-  icon: string
+  Icon: NavIcon
   items: NavLeaf[]
 }
 
@@ -20,7 +34,7 @@ const GROUPS: NavGroup[] = [
   {
     key: 'rfq',
     label: 'RFQ Planning',
-    icon: '📋',
+    Icon: ClipboardList,
     items: [
       { to: '/', label: 'Projects', active: (p) => p === '/' || p.startsWith('/projects') },
       { to: '/portfolio', label: 'Portfolio', active: (p) => p.startsWith('/portfolio') },
@@ -29,40 +43,34 @@ const GROUPS: NavGroup[] = [
   {
     key: 'hardware',
     label: 'Hardware',
-    icon: '🔧',
+    Icon: Cpu,
     items: [
       { to: '/hardware-catalog', label: 'Catalog', active: (p) => p.startsWith('/hardware-catalog') },
     ],
   },
 ]
 
-// Reference palette — the sidebar stays dark in both themes (like the mockup).
-const SIDEBAR = {
-  bg: '#0B1220',
-  border: '#1B2740',
-  section: '#5A6A88',
-  idle: '#C3CEDF',
-  idleIcon: '#8A99B5',
-  hover: '#131E36',
-  blue: '#3B9EFF',
-  subIdle: '#9AA8C7',
-}
-
 const SIDEBAR_KEY = 'rfq-sidebar-open'
+
+/**
+ * Colours come from the `--sidebar-*` custom properties in index.css, which are
+ * redefined under `[data-theme='light']` — so the rail follows the app's theme
+ * instead of staying dark on a light page.
+ */
+const SIDEBAR_SURFACE = 'bg-[var(--sidebar-bg)] text-[var(--sidebar-idle)]'
 
 function ThemeToggle() {
   const { theme, toggle } = useTheme()
   const dark = theme === 'dark'
+  const label = dark ? 'Switch to light mode' : 'Switch to dark mode'
   return (
     <button
       onClick={toggle}
-      title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
-      aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+      title={label}
+      aria-label={label}
       className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-800 bg-slate-900 text-slate-300 transition-colors hover:bg-slate-800 hover:text-slate-100"
     >
-      <span className="text-base" aria-hidden>
-        {dark ? '☀️' : '🌙'}
-      </span>
+      {dark ? <Sun className="h-4.5 w-4.5" /> : <Moon className="h-4.5 w-4.5" />}
     </button>
   )
 }
@@ -81,75 +89,66 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <>
-      <div
-        className="flex h-16 items-center gap-2.5 border-b px-4"
-        style={{ borderColor: SIDEBAR.border }}
-      >
+      <div className="flex h-16 items-center gap-2.5 border-b border-[var(--sidebar-border)] px-4">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-indigo-600 text-sm font-bold text-white">
           V
         </div>
-        <span className="truncate text-lg font-bold tracking-tight text-white">Vehiclevo</span>
+        <span className="truncate text-lg font-bold tracking-tight text-[var(--sidebar-brand)]">
+          Vehiclevo
+        </span>
       </div>
 
       <nav className="flex-1 overflow-y-auto px-3 py-4">
-        <p
-          className="px-2 pb-3 text-[11px] font-semibold uppercase tracking-widest"
-          style={{ color: SIDEBAR.section }}
-        >
+        <p className="px-2 pb-3 text-[11px] font-semibold uppercase tracking-widest text-[var(--sidebar-section)]">
           Main Menu
         </p>
 
         <div className="space-y-1">
-          {GROUPS.map((group) => {
-            const isActiveGroup = group.key === activeGroupKey
-            const isOpen = open[group.key]
+          {GROUPS.map(({ key, label, Icon, items }) => {
+            const isActiveGroup = key === activeGroupKey
+            const isOpen = open[key]
+            const Chevron = isOpen ? ChevronUp : ChevronDown
             return (
-              <div key={group.key}>
+              <div key={key}>
                 <button
-                  onClick={() => setOpen((prev) => ({ ...prev, [group.key]: !prev[group.key] }))}
-                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors"
-                  style={{ color: isActiveGroup ? SIDEBAR.blue : SIDEBAR.idle }}
-                  onMouseEnter={(e) => {
-                    if (!isActiveGroup) e.currentTarget.style.backgroundColor = SIDEBAR.hover
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = 'transparent'
-                  }}
+                  onClick={() => setOpen((prev) => ({ ...prev, [key]: !prev[key] }))}
+                  aria-expanded={isOpen}
+                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors hover:bg-[var(--sidebar-hover)] ${
+                    isActiveGroup ? 'text-[var(--sidebar-accent)]' : 'text-[var(--sidebar-idle)]'
+                  }`}
                 >
-                  <span
-                    className="text-base"
-                    aria-hidden
-                    style={{ color: isActiveGroup ? SIDEBAR.blue : SIDEBAR.idleIcon }}
-                  >
-                    {group.icon}
-                  </span>
-                  <span className="flex-1 text-left">{group.label}</span>
-                  <span
-                    className="text-xs transition-transform"
-                    aria-hidden
-                    style={{ color: isActiveGroup ? SIDEBAR.blue : SIDEBAR.idleIcon }}
-                  >
-                    {isOpen ? '↑' : '↓'}
-                  </span>
+                  <Icon
+                    className={`h-4.5 w-4.5 shrink-0 ${
+                      isActiveGroup ? 'text-[var(--sidebar-accent)]' : 'text-[var(--sidebar-idle-icon)]'
+                    }`}
+                    strokeWidth={1.75}
+                  />
+                  <span className="flex-1 text-left">{label}</span>
+                  <Chevron
+                    className={`h-4 w-4 shrink-0 ${
+                      isActiveGroup ? 'text-[var(--sidebar-accent)]' : 'text-[var(--sidebar-idle-icon)]'
+                    }`}
+                    strokeWidth={2}
+                  />
                 </button>
 
                 {isOpen && (
-                  <div className="mt-0.5 space-y-0.5 pb-1 pl-11">
-                    {group.items.map((item) => {
+                  <div className="mt-0.5 space-y-0.5 pb-1 pl-8">
+                    {items.map((item) => {
                       const active = item.active(pathname)
                       return (
                         <Link
                           key={item.to}
                           to={item.to}
                           onClick={onNavigate}
-                          className="block rounded-md px-3 py-1.5 text-sm transition-colors"
-                          style={{ color: active ? SIDEBAR.blue : SIDEBAR.subIdle, fontWeight: active ? 600 : 400 }}
-                          onMouseEnter={(e) => {
-                            if (!active) e.currentTarget.style.color = '#E2E8F5'
-                          }}
-                          onMouseLeave={(e) => {
-                            if (!active) e.currentTarget.style.color = SIDEBAR.subIdle
-                          }}
+                          aria-current={active ? 'page' : undefined}
+                          // The active leaf carries a left rail as well as the accent
+                          // colour, so the state does not rely on hue alone.
+                          className={`block border-l-2 py-1.5 pl-3 pr-3 text-sm transition-colors ${
+                            active
+                              ? 'border-[var(--sidebar-accent)] font-semibold text-[var(--sidebar-accent)]'
+                              : 'border-transparent text-[var(--sidebar-sub-idle)] hover:text-[var(--sidebar-hover-text)]'
+                          }`}
                         >
                           {item.label}
                         </Link>
@@ -163,10 +162,7 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       </nav>
 
-      <div
-        className="border-t px-4 py-3 text-[11px]"
-        style={{ borderColor: SIDEBAR.border, color: SIDEBAR.section }}
-      >
+      <div className="border-t border-[var(--sidebar-border)] px-4 py-3 text-[11px] text-[var(--sidebar-section)]">
         RFQ Planner · Vehiclevo
       </div>
     </>
@@ -209,8 +205,7 @@ export default function AppLayout() {
       {/* Desktop sidebar — a fixed rail; only mounted on large screens */}
       {isDesktop && sidebarOpen && (
         <aside
-          className="fixed inset-y-0 left-0 z-30 flex w-64 flex-col"
-          style={{ backgroundColor: SIDEBAR.bg }}
+          className={`fixed inset-y-0 left-0 z-30 flex w-64 flex-col border-r border-[var(--sidebar-border)] ${SIDEBAR_SURFACE}`}
         >
           <SidebarNav />
         </aside>
@@ -221,8 +216,7 @@ export default function AppLayout() {
         <div className="fixed inset-0 z-40">
           <div className="absolute inset-0 bg-black/60" onClick={() => setSidebarOpen(false)} />
           <aside
-            className="absolute inset-y-0 left-0 flex w-64 flex-col"
-            style={{ backgroundColor: SIDEBAR.bg }}
+            className={`absolute inset-y-0 left-0 flex w-64 flex-col border-r border-[var(--sidebar-border)] ${SIDEBAR_SURFACE}`}
           >
             <SidebarNav onNavigate={() => setSidebarOpen(false)} />
           </aside>
@@ -234,21 +228,20 @@ export default function AppLayout() {
           <button
             onClick={() => setSidebarOpen((o) => !o)}
             aria-label="Toggle navigation"
+            aria-expanded={sidebarOpen}
             className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-800 bg-slate-900 text-slate-300 transition-colors hover:bg-slate-800 hover:text-slate-100"
           >
-            <span className="text-lg leading-none" aria-hidden>
-              ☰
-            </span>
+            <Menu className="h-5 w-5" strokeWidth={1.75} />
           </button>
 
           <div className="flex items-center gap-2">
             <ThemeToggle />
             <button
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-700 bg-slate-800 text-sm font-semibold text-slate-200"
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-700 bg-slate-800 text-slate-200 transition-colors hover:text-slate-100"
               title="Account"
               aria-label="Account"
             >
-              <span aria-hidden>👤</span>
+              <CircleUser className="h-5 w-5" strokeWidth={1.75} />
             </button>
           </div>
         </header>

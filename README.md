@@ -91,14 +91,24 @@ expected failures; each later fix must remove its matching marker.
 ## Interface
 
 The app runs inside a portal shell (`components/AppLayout`): a persistent left
-sidebar with the Vehiclevo brand and grouped navigation (RFQ Planning →
-Projects, Portfolio; Modules → Hardware Catalog), and a top bar with a
-sidebar toggle, a **light/dark theme switch** and an account menu. The sidebar
-collapses to an icon rail on desktop and becomes an off-canvas drawer on small
-screens. Theme choice is persisted (`localStorage`) and defaults to the OS
-setting; light mode is produced by inverting Tailwind's `slate` scale on the
-root element (`theme/ThemeContext`, `index.css`), so every surface adapts while
-accent and status colours stay constant.
+sidebar with the Vehiclevo brand and collapsible navigation groups (RFQ
+Planning → Projects, Portfolio; Hardware → Catalog), and a top bar with a
+sidebar toggle, a **light/dark theme switch** and an account menu. Navigation
+uses monochrome line icons (`lucide-react`) that inherit the current text
+colour. The sidebar hides behind the toggle on desktop and becomes an
+off-canvas drawer on small screens.
+
+Theme choice is persisted (`localStorage`), defaults to the OS setting and is
+applied by an inline script in `index.html` before the first paint, so light
+mode never flashes dark. `index.css` implements it by redefining Tailwind's
+colour custom properties under `[data-theme='light']`: the `slate` ramp is
+inverted end-to-end, and each accent ramp swaps only its ends — shades 200-400
+(accent *text*) with 700-900, and 800-950 (accent *surfaces*) with 50-200 —
+while 500-700 stay fixed so solid buttons, focus rings and the brand gradient
+keep their white-on-accent contrast. The sidebar is a surface of its own and
+draws on `--sidebar-*` tokens defined for both themes, so the rail flips with
+the rest of the app instead of staying dark on a light page. Components need no
+per-theme classes.
 
 ## Application concepts (unchanged from the desktop app)
 
