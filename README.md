@@ -92,11 +92,11 @@ expected failures; each later fix must remove its matching marker.
 
 The app runs inside a portal shell (`components/AppLayout`): a persistent left
 sidebar with the Vehiclevo brand and collapsible navigation groups (RFQ
-Planning → Projects, Portfolio; Hardware → Catalog), and a top bar with a
-sidebar toggle, a **light/dark theme switch** and an account menu. Navigation
-uses monochrome line icons (`lucide-react`) that inherit the current text
-colour. The sidebar hides behind the toggle on desktop and becomes an
-off-canvas drawer on small screens.
+Planning → Projects, Portfolio; Hardware → Overview, Catalog, Ordering
+Process), and a top bar with a sidebar toggle, a **light/dark theme switch**
+and an account menu. Navigation uses monochrome line icons (`lucide-react`)
+that inherit the current text colour. The sidebar hides behind the toggle on
+desktop and becomes an off-canvas drawer on small screens.
 
 Theme choice is persisted (`localStorage`), defaults to the OS setting and is
 applied by an inline script in `index.html` before the first paint, so light
@@ -163,6 +163,59 @@ per-theme classes.
   entries that were deleted or to load newly added seed rows; seeding never
   duplicates or overwrites existing catalog items.
 
+## Hardware Management
+
+A second, self-contained module (sidebar → Hardware) that replaces the
+`HW_purchasing_working_document_V5.xlsx` working document: what was actually
+bought, what it costs per year, and how much budget is left. It is separate from
+RFQ hardware *planning* — planning estimates a quotation, this tracks real
+purchases — and it keeps its own project list (`hw_projects`), with a
+`portal_reference` column reserved for the later link to the company portal's
+projects.
+
+- **Registers** — hardware objects are split the way the workbook split them:
+  **Assets** (`hw_assets`: serial, model, category, status, order number, EOL
+  date, assigned employee) and **Licenses** (`hw_licenses`: product key,
+  expiration date, licensed-to email, manufacturer, quantity, maintenance flag).
+  Both are edited as a grid whose hot fields are inline and whose remaining
+  fields open in a per-row dialog; the name column is pinned like the
+  spreadsheet's frozen first column. Rows can be typed in, picked from the shared
+  hardware catalog (which fills in supplier and price), or imported.
+- **Depreciation** — every row spreads across years exactly as the working
+  document did: `Leasing` amortises over a **fixed 36 months**
+  (`cost / 36 × months overlapping the year`, months counted the way Excel's
+  `DATEDIF(…, "m") + 1` counts them), `Purchase` lands whole in its purchase
+  year, and `Planned Purchase` / `Not Purchased` contribute nothing to actual
+  spend. `Planned Purchase` rows are totalled separately as planned budget. The
+  engine lives in `backend/app/services/hw_depreciation.py`, is mirrored in
+  `frontend/src/hardware/depreciation.ts` for live feedback while editing, and
+  both are unit-tested against values taken out of the original workbook.
+- **Project overview** (`/hardware/projects/{id}`) — budget / committed /
+  planned / remaining tiles, then a Summary tab (per-year budget table including
+  the workbook's manual "Special cases" deltas, license renewal risk, and the
+  category × status pivots) plus the two registers.
+- **Management overview** (`/hardware`) — the same picture across every project:
+  spend by year, a sortable project table with budget utilisation, the
+  expired / 30 / 60 / 90-day license renewal risk with the expiring list, and the
+  asset pivot. This replaces the workbook's Assets Dashboard and Summary sheets.
+- **Excel in and out** — *Import Excel* accepts a workbook with an `Assets`
+  and/or `Licenses` sheet carrying the working document's headers, shows a
+  dry-run preview (rows parsed, warnings, sample) before anything is written, and
+  is tolerant of the real file: German decimals (`1.234,56`), currency symbols,
+  several date formats, stray header whitespace, unknown columns and the derived
+  year columns. Rows the document identified only by category and manufacturer
+  (most of its licence rows have no name) are named from those columns rather
+  than dropped. *Export Excel* writes the replacement workbook — Dashboard,
+  Summary, Assets, Licenses and HW Catalogue — and re-imports cleanly.
+  *Template* downloads an empty version of the two sheets.
+- **Ordering process** (`/hardware/process`) — the three-phase purchase flow that
+  the workbook carried as pasted images on its first sheet, as data
+  (`frontend/src/hardware/orderingProcess.ts`), with each step's owner and
+  guidance and links to the screen that performs it.
+
+Supplier contact people (the workbook's "Contact person" sheet) live on the
+shared hardware catalog entry, so there is one place per vendor.
+
 ## REST API overview
 
 | Method   | Path                                            | Purpose                          |
@@ -189,6 +242,19 @@ per-theme classes.
 | GET/POST | `/api/projects/{id}/hardware`                   | Hardware plan / add an item      |
 | PUT/DELETE | `/api/hardware-items/{id}`                    | Update / delete a hardware item  |
 | GET      | `/api/projects/{id}/reports/hardware-plan.xlsx` | Hardware plan workbook           |
+| GET      | `/api/hw/meta`                                  | Register dropdown vocabularies   |
+| GET      | `/api/hw/overview`                              | Spend across every HW project    |
+| GET/POST | `/api/hw/projects`                              | List / create HW projects        |
+| GET/PUT/DELETE | `/api/hw/projects/{id}`                   | Read / update / delete a project |
+| GET      | `/api/hw/projects/{id}/summary`                 | Per-year budget, risk, pivots    |
+| GET/POST/PUT | `/api/hw/projects/{id}/assets`              | Asset register (PUT replaces)    |
+| GET/POST/PUT | `/api/hw/projects/{id}/licenses`            | License register (PUT replaces)  |
+| PUT/DELETE | `/api/hw/assets/{id}`                         | Update / delete one asset        |
+| PUT/DELETE | `/api/hw/licenses/{id}`                       | Update / delete one license      |
+| GET/PUT  | `/api/hw/projects/{id}/adjustments`             | "Special cases" budget deltas    |
+| POST     | `/api/hw/projects/{id}/import`                  | Upload xlsx (`dry_run` preview)  |
+| GET      | `/api/hw/projects/{id}/export.xlsx`             | Replacement working document     |
+| GET      | `/api/hw/import-template.xlsx`                  | Empty import template            |
 
 ## Project structure
 

@@ -45,7 +45,14 @@ const GROUPS: NavGroup[] = [
     label: 'Hardware',
     Icon: Cpu,
     items: [
+      // `startsWith('/hardware')` alone would also claim '/hardware-catalog'.
+      {
+        to: '/hardware',
+        label: 'Overview',
+        active: (p) => p === '/hardware' || (p.startsWith('/hardware/') && p !== '/hardware/process'),
+      },
       { to: '/hardware-catalog', label: 'Catalog', active: (p) => p.startsWith('/hardware-catalog') },
+      { to: '/hardware/process', label: 'Ordering Process', active: (p) => p === '/hardware/process' },
     ],
   },
 ]

@@ -1,6 +1,6 @@
 """Pydantic request/response schemas."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -562,3 +562,239 @@ class HardwarePlanOut(BaseModel):
     items: list[HardwareItemOut]
     per_year: dict[int, float]
     grand_total: float
+
+
+# ---------------------------------------------------------------------------
+# Hardware management (the Assets/Licenses registers of the HW working document)
+# ---------------------------------------------------------------------------
+
+class HwProjectInput(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    company: str = Field("", max_length=255)
+    description: str = Field("", max_length=4000)
+    budget_assets: float = Field(0.0, ge=0.0)
+    budget_licenses: float = Field(0.0, ge=0.0)
+    portal_reference: str = Field("", max_length=255)
+
+
+class HwProjectOut(HwProjectInput):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class HwProjectRollupOut(HwProjectOut):
+    """A project row of the management overview: its own budget position."""
+
+    asset_count: int = 0
+    license_count: int = 0
+    actual_total: float = 0.0
+    planned_total: float = 0.0
+    budget_total: float = 0.0
+    remaining: float = 0.0
+    licenses_expired: int = 0
+    licenses_expiring_90: int = 0
+
+
+# The vocabularies in config.py only populate the dropdowns: the registers were
+# free text in the sheet and stay free text here, so no value validators.
+class HwAssetInput(BaseModel):
+    asset_tag: str = Field("", max_length=255)
+    company: str = Field("", max_length=255)
+    name: str = Field(..., min_length=1, max_length=255)
+    serial: str = Field("", max_length=255)
+    model: str = Field("", max_length=255)
+    category: str = Field("", max_length=255)
+    status: str = Field("", max_length=255)
+    supplier: str = Field("", max_length=255)
+    purchase_date: Optional[date] = None
+    purchase_cost: float = Field(0.0, ge=0.0)
+    order_number: str = Field("", max_length=255)
+    eol_date: Optional[date] = None
+    assigned_employee: str = Field("", max_length=255)
+    sw_license: str = Field("", max_length=255)
+    purchased_by: str = Field("", max_length=255)
+    purchase_type: str = Field("Not Purchased", max_length=32)
+    catalog_item_id: Optional[int] = None
+
+
+class HwAssetOut(HwAssetInput):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    hw_project_id: int
+    per_year: dict[str, float] = Field(default_factory=dict)
+    total: float = 0.0
+
+
+class HwLicenseInput(BaseModel):
+    license_tag: str = Field("", max_length=255)
+    company: str = Field("", max_length=255)
+    name: str = Field(..., min_length=1, max_length=255)
+    product_key: str = Field("", max_length=255)
+    expiration_date: Optional[date] = None
+    licensed_to_email: str = Field("", max_length=255)
+    category: str = Field("", max_length=255)
+    supplier: str = Field("", max_length=255)
+    manufacturer: str = Field("", max_length=255)
+    quantity: int = Field(1, ge=0)
+    purchase_date: Optional[date] = None
+    termination_date: Optional[date] = None
+    depreciation: str = Field("Not Purchased", max_length=32)
+    maintained: bool = False
+    purchase_cost: float = Field(0.0, ge=0.0)
+    purchase_order_number: str = Field("", max_length=255)
+    notes: str = Field("", max_length=4000)
+    catalog_item_id: Optional[int] = None
+
+
+class HwLicenseOut(HwLicenseInput):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    hw_project_id: int
+    per_year: dict[str, float] = Field(default_factory=dict)
+    total: float = 0.0
+
+
+class HwAssetBulk(BaseModel):
+    items: list[HwAssetInput] = Field(default_factory=list)
+
+
+class HwLicenseBulk(BaseModel):
+    items: list[HwLicenseInput] = Field(default_factory=list)
+
+
+class HwAdjustment(BaseModel):
+    """One "Special Cases Budget" cell of the Summary sheet (columns I and J)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    year: int = Field(..., ge=1900, le=2200)
+    kind: str
+    amount: float = 0.0
+    note: str = Field("", max_length=1000)
+
+    @field_validator("kind")
+    @classmethod
+    def valid_kind(cls, v: str) -> str:
+        kind = v.strip().lower()
+        if kind not in ("assets", "licenses"):
+            raise ValueError(
+                f"Invalid adjustment kind: {v}. Must be assets or licenses"
+            )
+        return kind
+
+
+class HwAdjustmentBulk(BaseModel):
+    items: list[HwAdjustment] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def unique_year_and_kind(self):
+        seen = set()
+        for item in self.items:
+            key = (item.year, item.kind)
+            if key in seen:
+                raise ValueError(
+                    f"Duplicate {item.kind} adjustment for {item.year}; "
+                    "a year carries one adjustment per register"
+                )
+            seen.add(key)
+        return self
+
+
+class HwYearRow(BaseModel):
+    year: int
+    actual_assets: float
+    actual_licenses: float
+    actual_total: float
+    planned_assets: float
+    planned_licenses: float
+    planned_total: float
+    grand_total: float
+
+
+class HwRenewalRisk(BaseModel):
+    expired: int
+    in_30_days: int
+    in_60_days: int
+    in_90_days: int
+
+
+class HwPivotRow(BaseModel):
+    category: str
+    counts: dict[str, int]
+    total: int
+
+
+class HwPivot(BaseModel):
+    statuses: list[str]
+    rows: list[HwPivotRow]
+
+
+class HwLicenseExpiry(BaseModel):
+    id: int
+    name: str
+    manufacturer: str
+    expiration_date: date
+    days_left: int
+    hw_project_id: int
+    hw_project_name: str
+
+
+class HwDashboard(BaseModel):
+    budget_total: float
+    budget_assets: float
+    budget_licenses: float
+    spent_total: float
+    planned_total: float
+    remaining: float
+
+
+class HwSummaryOut(BaseModel):
+    years: list[HwYearRow]
+    totals: HwYearRow
+    risk: HwRenewalRisk
+    expiring: list[HwLicenseExpiry]
+    asset_pivot: HwPivot
+    license_pivot: HwPivot
+    dashboard: HwDashboard
+    asset_count: int
+    license_count: int
+    adjustments: list[HwAdjustment]
+
+
+class HwOverviewOut(BaseModel):
+    projects: list[HwProjectRollupOut]
+    years: list[HwYearRow]
+    totals: HwYearRow
+    risk: HwRenewalRisk
+    expiring: list[HwLicenseExpiry]
+    asset_pivot: HwPivot
+    dashboard: HwDashboard
+    project_count: int
+    asset_count: int
+    license_count: int
+
+
+class HwImportPreview(BaseModel):
+    assets: list[HwAssetInput]
+    licenses: list[HwLicenseInput]
+    warnings: list[str]
+    sheets_found: list[str]
+
+
+class HwImportResult(BaseModel):
+    created_assets: int
+    created_licenses: int
+    warnings: list[str]
+
+
+class HwMetaOut(BaseModel):
+    purchase_types: list[str]
+    asset_statuses: list[str]
+    asset_categories: list[str]
+    license_categories: list[str]
+    leasing_months: int

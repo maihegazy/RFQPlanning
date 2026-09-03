@@ -10,6 +10,7 @@ from .database import run_migrations
 from .routers import (
     features,
     hardware,
+    hw_management,
     meta,
     portfolio,
     projects,
@@ -48,3 +49,4 @@ app.include_router(reports.router)
 app.include_router(vault.router)
 app.include_router(portfolio.router)
 app.include_router(hardware.router)
+app.include_router(hw_management.router)
