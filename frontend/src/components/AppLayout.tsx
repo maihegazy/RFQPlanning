@@ -5,7 +5,6 @@ import { useTheme } from '../theme/ThemeContext'
 interface NavItem {
   to: string
   label: string
-  icon: string
   end?: boolean
 }
 
@@ -18,13 +17,13 @@ const SECTIONS: NavSection[] = [
   {
     title: 'RFQ Planning',
     items: [
-      { to: '/', label: 'Projects', icon: '📋', end: true },
-      { to: '/portfolio', label: 'Portfolio', icon: '📊' },
+      { to: '/', label: 'Projects', end: true },
+      { to: '/portfolio', label: 'Portfolio' },
     ],
   },
   {
     title: 'Modules',
-    items: [{ to: '/hardware-catalog', label: 'Hardware Catalog', icon: '🔧' }],
+    items: [{ to: '/hardware-catalog', label: 'Hardware Catalog' }],
   },
 ]
 
@@ -93,10 +92,13 @@ function SidebarContent({
                     }`
                   }
                 >
-                  <span className="text-base" aria-hidden>
-                    {item.icon}
-                  </span>
-                  {!collapsed && <span className="truncate">{item.label}</span>}
+                  {collapsed ? (
+                    <span className="font-semibold" aria-hidden>
+                      {item.label.charAt(0)}
+                    </span>
+                  ) : (
+                    <span className="truncate">{item.label}</span>
+                  )}
                 </NavLink>
               ))}
             </div>
