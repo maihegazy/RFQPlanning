@@ -403,12 +403,6 @@ export default function ProjectsPage() {
           </Select>
         </div>
         <div className="h-6 w-px bg-slate-800" />
-        <Link to="/portfolio">
-          <Button variant="secondary">📊 Portfolio</Button>
-        </Link>
-        <Link to="/hardware-catalog">
-          <Button variant="secondary">🔧 Hardware Catalog</Button>
-        </Link>
         <input
           ref={fileInput}
           type="file"

@@ -88,6 +88,18 @@ The same backend and frontend checks run automatically in GitHub Actions for
 pull requests and pushes to `main`. Known audit defects are recorded as strict
 expected failures; each later fix must remove its matching marker.
 
+## Interface
+
+The app runs inside a portal shell (`components/AppLayout`): a persistent left
+sidebar with the Vehiclevo brand and grouped navigation (RFQ Planning →
+Projects, Portfolio; Modules → Hardware Catalog), and a top bar with a
+sidebar toggle, a **light/dark theme switch** and an account menu. The sidebar
+collapses to an icon rail on desktop and becomes an off-canvas drawer on small
+screens. Theme choice is persisted (`localStorage`) and defaults to the OS
+setting; light mode is produced by inverting Tailwind's `slate` scale on the
+root element (`theme/ThemeContext`, `index.css`), so every surface adapts while
+accent and status colours stay constant.
+
 ## Application concepts (unchanged from the desktop app)
 
 - **Project** — name, company and a month-granular timeline (start/end year+month).

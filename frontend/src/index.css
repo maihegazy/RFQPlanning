@@ -1,5 +1,37 @@
 @import 'tailwindcss';
 
+/*
+ * Theme model
+ * -----------
+ * The whole app is built on Tailwind's `slate` scale used "dark-first":
+ * dark surfaces (slate-900/950) with light text (slate-100). That default IS
+ * the dark theme. For light mode we invert the slate ramp on the root element
+ * (data-theme="light"), so every existing `bg-slate-*` / `text-slate-*` /
+ * `border-slate-*` utility flips automatically — no per-component changes.
+ * Accent colours (indigo, emerald, rose, amber, sky) are intentionally left
+ * unchanged so buttons, badges and status chips read on both themes.
+ */
+
+:root {
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --color-slate-50: oklch(0.129 0.042 264.695);
+  --color-slate-100: oklch(0.208 0.042 265.755);
+  --color-slate-200: oklch(0.279 0.041 260.031);
+  --color-slate-300: oklch(0.372 0.044 257.287);
+  --color-slate-400: oklch(0.446 0.043 257.281);
+  --color-slate-500: oklch(0.554 0.046 257.417);
+  --color-slate-600: oklch(0.704 0.04 256.788);
+  --color-slate-700: oklch(0.869 0.022 252.894);
+  --color-slate-800: oklch(0.929 0.013 255.508);
+  --color-slate-900: oklch(0.968 0.007 247.896);
+  --color-slate-950: oklch(0.984 0.003 247.858);
+}
+
 body {
   @apply bg-slate-950 text-slate-100 antialiased;
 }
