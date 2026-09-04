@@ -298,6 +298,11 @@ class HwProject(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     company: Mapped[str] = mapped_column(String(255), default="")
     description: Mapped[str] = mapped_column(Text, default="")
+    # A budget is approved either as one number or split by type; `budget_mode`
+    # says which of the two is the real one, so an unused figure left over from
+    # the other mode can never quietly change a total.
+    budget_mode: Mapped[str] = mapped_column(String(16), default="split")
+    budget_total: Mapped[float] = mapped_column(Float, default=0.0)
     budget_assets: Mapped[float] = mapped_column(Float, default=0.0)
     budget_licenses: Mapped[float] = mapped_column(Float, default=0.0)
     # Optional planning window; the summary always spans at least these years so a

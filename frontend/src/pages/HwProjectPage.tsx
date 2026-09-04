@@ -13,7 +13,6 @@ import type {
   HwMeta,
   HwPivot,
   HwProject,
-  HwProjectInput,
   HwPurchaseType,
   HwRenewalRisk,
   HwSummary,
@@ -25,6 +24,12 @@ import { Button, Card, EmptyState, ErrorBanner, Input, Label, Modal, Spinner } f
 import HwAssetTable from '../components/HwAssetTable'
 import HwLicenseTable from '../components/HwLicenseTable'
 import HwImportDialog from '../components/HwImportDialog'
+import HwBudgetFields, {
+  budgetBreakdown,
+  budgetPayload,
+  draftFromProject,
+  type BudgetDraft,
+} from '../components/HwBudgetFields'
 
 type TabKey = 'summary' | 'assets' | 'licenses'
 type RegisterKey = 'assets' | 'licenses'
@@ -658,24 +663,27 @@ function EditProjectModal({
   onSaved: (updated: HwProject) => void
   onClose: () => void
 }) {
-  const [form, setForm] = useState<HwProjectInput>({
+  const [form, setForm] = useState({
     name: project.name,
     company: project.company,
     description: project.description,
-    budget_assets: project.budget_assets,
-    budget_licenses: project.budget_licenses,
     portal_reference: project.portal_reference,
   })
+  const [budget, setBudget] = useState<BudgetDraft>(() => draftFromProject(project))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  const patch = (changes: Partial<HwProjectInput>) => setForm((prev) => ({ ...prev, ...changes }))
+  const patch = (changes: Partial<typeof form>) => setForm((prev) => ({ ...prev, ...changes }))
 
   const save = async () => {
     setSaving(true)
     setError('')
     try {
-      const updated = await api.updateHwProject(project.id, { ...form, name: form.name.trim() })
+      const updated = await api.updateHwProject(project.id, {
+        ...form,
+        name: form.name.trim(),
+        ...budgetPayload(budget),
+      })
       onSaved(updated)
       onClose()
     } catch (e) {
@@ -719,32 +727,7 @@ function EditProjectModal({
           />
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div>
-            <Label>Assets budget (€)</Label>
-            <Input
-              aria-label="Assets budget (€)"
-              type="number"
-              min={0}
-              step="0.01"
-              className="text-right"
-              value={form.budget_assets}
-              onChange={(e) => patch({ budget_assets: Number(e.target.value) })}
-            />
-          </div>
-          <div>
-            <Label>Licenses budget (€)</Label>
-            <Input
-              aria-label="Licenses budget (€)"
-              type="number"
-              min={0}
-              step="0.01"
-              className="text-right"
-              value={form.budget_licenses}
-              onChange={(e) => patch({ budget_licenses: Number(e.target.value) })}
-            />
-          </div>
-        </div>
+        <HwBudgetFields draft={budget} onChange={setBudget} />
 
         <div>
           <Label>Portal reference</Label>
@@ -756,10 +739,7 @@ function EditProjectModal({
           />
         </div>
 
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-xs text-slate-500">
-            Overall budget {formatEuro(form.budget_assets + form.budget_licenses)}
-          </p>
+        <div className="flex items-center justify-end gap-3">
           <div className="flex gap-2">
             <Button variant="secondary" onClick={onClose} disabled={saving}>
               Cancel
@@ -1152,9 +1132,7 @@ export default function HwProjectPage() {
         <KpiTile
           label="Budget"
           value={formatEuro(dashboard.budget_total)}
-          hint={`Assets ${formatEuro(dashboard.budget_assets)} · Licenses ${formatEuro(
-            dashboard.budget_licenses,
-          )}`}
+          hint={budgetBreakdown(dashboard) ?? 'Approved as one overall figure'}
         />
         <KpiTile
           label="Committed"

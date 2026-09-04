@@ -17,6 +17,12 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { api } from '../api'
+import HwBudgetFields, {
+  budgetBreakdown,
+  EMPTY_BUDGET,
+  budgetPayload,
+  type BudgetDraft,
+} from '../components/HwBudgetFields'
 import type {
   HwLicenseExpiry,
   HwOverview,
@@ -139,9 +145,7 @@ function Kpis({ overview }: { overview: HwOverview }) {
         <KpiTile
           label="Overall budget"
           value={formatEuro(budget)}
-          hint={`Assets ${formatEuro(dashboard.budget_assets)} · Licenses ${formatEuro(
-            dashboard.budget_licenses,
-          )}`}
+          hint={budgetBreakdown(dashboard) ?? 'Approved as one overall figure'}
         />
         <KpiTile
           label="Committed spend"
@@ -572,11 +576,6 @@ function PivotTable({ pivot }: { pivot: HwPivot }) {
 /* New project                                                                 */
 /* -------------------------------------------------------------------------- */
 
-function toAmount(raw: string): number {
-  const value = Number(raw)
-  return Number.isFinite(value) ? value : 0
-}
-
 function NewProjectModal({
   onClose,
   onCreated,
@@ -587,13 +586,10 @@ function NewProjectModal({
   const [name, setName] = useState('')
   const [company, setCompany] = useState('')
   const [description, setDescription] = useState('')
-  const [budgetAssets, setBudgetAssets] = useState('0')
-  const [budgetLicenses, setBudgetLicenses] = useState('0')
+  const [budget, setBudget] = useState<BudgetDraft>(EMPTY_BUDGET)
   const [portalReference, setPortalReference] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-
-  const budgetTotal = toAmount(budgetAssets) + toAmount(budgetLicenses)
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -605,8 +601,7 @@ function NewProjectModal({
         name: name.trim(),
         company: company.trim(),
         description: description.trim(),
-        budget_assets: toAmount(budgetAssets),
-        budget_licenses: toAmount(budgetLicenses),
+        ...budgetPayload(budget),
         portal_reference: portalReference.trim(),
       })
       // No setSaving(false): the caller navigates away and unmounts this form.
@@ -657,43 +652,20 @@ function NewProjectModal({
           />
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-3">
-          <div>
-            <Label>Assets budget (€)</Label>
-            <Input
-              aria-label="Assets budget (€)"
-              type="number"
-              step="0.01"
-              min="0"
-              value={budgetAssets}
-              onChange={(e) => setBudgetAssets(e.target.value)}
-            />
-          </div>
-          <div>
-            <Label>Licenses budget (€)</Label>
-            <Input
-              aria-label="Licenses budget (€)"
-              type="number"
-              step="0.01"
-              min="0"
-              value={budgetLicenses}
-              onChange={(e) => setBudgetLicenses(e.target.value)}
-            />
-          </div>
-          <div>
-            <Label>Portal reference</Label>
-            <Input
-              aria-label="Portal reference"
-              value={portalReference}
-              onChange={(e) => setPortalReference(e.target.value)}
-              placeholder="Optional"
-            />
-          </div>
+        <HwBudgetFields draft={budget} onChange={setBudget} />
+
+        <div className="sm:max-w-xs">
+          <Label>Portal reference</Label>
+          <Input
+            aria-label="Portal reference"
+            value={portalReference}
+            onChange={(e) => setPortalReference(e.target.value)}
+            placeholder="Optional"
+          />
         </div>
 
         <p className="text-xs text-slate-500">
-          Overall budget {formatEuro(budgetTotal)}. Budgets and the portal reference can be
-          changed later on the project page.
+          The budget and the portal reference can be changed later on the project page.
         </p>
 
         <div className="flex justify-end gap-2 border-t border-slate-800 pt-4">

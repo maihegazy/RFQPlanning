@@ -194,10 +194,16 @@ export interface PortfolioCapacity {
 /** Drives depreciation: only Purchase and Leasing produce actual yearly cost. */
 export type HwPurchaseType = 'Purchase' | 'Leasing' | 'Planned Purchase' | 'Not Purchased'
 
+/** How a hardware budget was approved: as one number, or split by type. */
+export type HwBudgetMode = 'split' | 'overall'
+
 export interface HwProjectInput {
   name: string
   company: string
   description: string
+  budget_mode: HwBudgetMode
+  /** The approved figure when `budget_mode` is 'overall'; ignored otherwise. */
+  budget_total: number
   budget_assets: number
   budget_licenses: number
   /** Reserved for the later link to the company portal's project list. */
@@ -215,6 +221,11 @@ export interface HwProjectRollup extends HwProject {
   license_count: number
   actual_total: number
   planned_total: number
+  /**
+   * The *effective* budget, unlike the field it shadows on `HwProjectInput`:
+   * the entered overall figure in 'overall' mode, the sum of the two component
+   * budgets in 'split' mode.
+   */
   budget_total: number
   remaining: number
   licenses_expired: number
@@ -373,6 +384,7 @@ export interface HwMeta {
   purchase_types: HwPurchaseType[]
   asset_statuses: string[]
   asset_categories: string[]
+  budget_modes: HwBudgetMode[]
   license_categories: string[]
   leasing_months: number
 }

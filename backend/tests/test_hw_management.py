@@ -663,6 +663,84 @@ def upload(client, project_id, content, dry_run, name="register.xlsx"):
     )
 
 
+# ---------------------------------------------------------------------------
+# Budget mode
+# ---------------------------------------------------------------------------
+
+def test_budget_defaults_to_the_split_of_assets_and_licenses(client):
+    project_id = make_project(client, "Split Budget",
+                              budget_assets=1000.0, budget_licenses=250.0)
+    project = client.get(f"/api/hw/projects/{project_id}").json()
+    assert project["budget_mode"] == "split"
+
+    dashboard = client.get(f"/api/hw/projects/{project_id}/summary").json()["dashboard"]
+    assert dashboard["budget_total"] == 1250.0
+    assert dashboard["budget_assets"] == 1000.0
+    assert dashboard["budget_licenses"] == 250.0
+
+
+def test_overall_budget_ignores_the_split_figures(client):
+    """One approved number is the whole budget; a stale split must not add to it."""
+    project_id = make_project(
+        client, "Overall Budget", budget_mode="overall", budget_total=9000.0,
+        # Left over from a previous split — these must not count
+        budget_assets=1000.0, budget_licenses=250.0,
+    )
+    dashboard = client.get(f"/api/hw/projects/{project_id}/summary").json()["dashboard"]
+    assert dashboard["budget_total"] == 9000.0
+    assert dashboard["budget_assets"] == 0.0
+    assert dashboard["budget_licenses"] == 0.0
+    assert dashboard["remaining"] == 9000.0
+
+    rollup = next(p for p in client.get("/api/hw/projects").json()
+                  if p["id"] == project_id)
+    assert rollup["budget_total"] == 9000.0
+
+
+def test_switching_budget_mode_reinstates_the_split(client):
+    project_id = make_project(client, "Mode Switch", budget_mode="overall",
+                              budget_total=9000.0, budget_assets=600.0,
+                              budget_licenses=400.0)
+    body = client.get(f"/api/hw/projects/{project_id}").json()
+    body["budget_mode"] = "split"
+    assert client.put(f"/api/hw/projects/{project_id}", json=body).status_code == 200
+
+    dashboard = client.get(f"/api/hw/projects/{project_id}/summary").json()["dashboard"]
+    assert dashboard["budget_total"] == 1000.0
+
+
+def test_unknown_budget_mode_is_rejected(client):
+    resp = client.post("/api/hw/projects", json={
+        "name": "Bad Mode", "company": "", "description": "",
+        "budget_mode": "guess", "budget_total": 0.0,
+        "budget_assets": 0.0, "budget_licenses": 0.0, "portal_reference": "",
+    })
+    assert resp.status_code == 422
+
+
+def test_overview_totals_overall_and_split_projects_together(client):
+    # The suite shares one database, so assert on the delta these two add.
+    before = client.get("/api/hw/overview").json()["dashboard"]
+
+    split_id = make_project(client, "Overview Split", budget_assets=100.0,
+                            budget_licenses=200.0)
+    overall_id = make_project(client, "Overview Overall", budget_mode="overall",
+                              budget_total=700.0)
+
+    overview = client.get("/api/hw/overview").json()
+    assert {split_id, overall_id} <= {p["id"] for p in overview["projects"]}
+    after = overview["dashboard"]
+
+    assert after["budget_total"] - before["budget_total"] == 1000.0
+    # The overall project adds to the total but has no per-type share to add, so
+    # only the split project moves the breakdown.
+    assert after["budget_assets"] - before["budget_assets"] == 100.0
+    assert after["budget_licenses"] - before["budget_licenses"] == 200.0
+
+    for pid in (split_id, overall_id):
+        assert client.delete(f"/api/hw/projects/{pid}").status_code == 204
+
+
 def test_import_names_rows_the_working_document_left_blank(client, import_project):
     """The real document names most licences only by category + manufacturer.
 

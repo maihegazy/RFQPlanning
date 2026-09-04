@@ -190,6 +190,12 @@ projects.
   engine lives in `backend/app/services/hw_depreciation.py`, is mirrored in
   `frontend/src/hardware/depreciation.ts` for live feedback while editing, and
   both are unit-tested against values taken out of the original workbook.
+- **Budget** — a project's budget is approved either as **one overall figure**
+  or **split between assets and licenses**, and `budget_mode` records which of
+  the two is authoritative so a stale figure left over from the other mode can
+  never quietly change a total. Both sets of numbers are kept when the mode is
+  switched. In overall mode there is no per-type share by definition, so the
+  dashboard reports the total and omits the breakdown rather than inventing one.
 - **Project overview** (`/hardware/projects/{id}`) — budget / committed /
   planned / remaining tiles, then a Summary tab (per-year budget table including
   the workbook's manual "Special cases" deltas, license renewal risk, and the

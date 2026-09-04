@@ -15,6 +15,7 @@ from .. import models, schemas
 from ..config import (
     HW_ASSET_CATEGORIES,
     HW_ASSET_STATUSES,
+    HW_BUDGET_MODES,
     HW_LEASING_MONTHS,
     HW_LICENSE_CATEGORIES,
     HW_PURCHASE_TYPES,
@@ -87,10 +88,12 @@ def project_years(project: models.HwProject) -> list[int]:
 
 
 def summarize_project(project: models.HwProject, today: date) -> dict:
+    total, assets_budget, licenses_budget = hw_depreciation.project_budget(project)
     return hw_depreciation.summarize(
         project.assets, project.licenses, project.adjustments,
-        project.budget_assets, project.budget_licenses, today,
+        assets_budget, licenses_budget, today,
         extra_years=extra_years(project),
+        budget_total=total,
     )
 
 
@@ -159,6 +162,7 @@ def get_hw_meta():
         "asset_statuses": HW_ASSET_STATUSES,
         "asset_categories": HW_ASSET_CATEGORIES,
         "license_categories": HW_LICENSE_CATEGORIES,
+        "budget_modes": HW_BUDGET_MODES,
         "leasing_months": HW_LEASING_MONTHS,
     }
 

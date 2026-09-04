@@ -309,12 +309,28 @@ def _budget_rows(assets: Any, licenses: Any, adjustments: Any,
     return [_year_row(*row) for row in raw], totals
 
 
+def project_budget(project: Any) -> tuple[float, float, float]:
+    """(total, assets, licenses) for a project, honouring its budget mode.
+
+    An overall budget has no per-type split by definition, so the two component
+    figures are zero rather than a guess — the UI shows the breakdown only when
+    it adds up.
+    """
+    if getattr(project, "budget_mode", "split") == "overall":
+        return _money(getattr(project, "budget_total", 0.0)), 0.0, 0.0
+    assets = _money(project.budget_assets)
+    licenses = _money(project.budget_licenses)
+    return assets + licenses, assets, licenses
+
+
 def _dashboard(budget_assets: float, budget_licenses: float,
-               totals: dict) -> dict[str, float]:
+               totals: dict, budget_total: float | None = None) -> dict[str, float]:
     """Assets Dashboard tiles: remaining counts spent only, never the plan."""
     assets_budget = _money(budget_assets)
     licenses_budget = _money(budget_licenses)
-    budget_total = assets_budget + licenses_budget
+    budget_total = (
+        assets_budget + licenses_budget if budget_total is None else _money(budget_total)
+    )
     return {
         "budget_total": round(budget_total, 2),
         "budget_assets": round(assets_budget, 2),
@@ -341,7 +357,8 @@ def _adjustment_rows(adjustments: Any) -> list[dict]:
 
 def summarize(assets: Any, licenses: Any, adjustments: Any,
               budget_assets: float, budget_licenses: float,
-              today: datetime.date, extra_years: Any = ()) -> dict[str, Any]:
+              today: datetime.date, extra_years: Any = (),
+              budget_total: float | None = None) -> dict[str, Any]:
     """The HwSummary payload minus `expiring`, which needs project names."""
     assets = list(assets)
     licenses = list(licenses)
@@ -363,7 +380,7 @@ def summarize(assets: Any, licenses: Any, adjustments: Any,
         "asset_pivot": category_pivot(assets, "category", "status", HW_ASSET_STATUSES),
         "license_pivot": category_pivot(licenses, "category", "depreciation",
                                         HW_PURCHASE_TYPES),
-        "dashboard": _dashboard(budget_assets, budget_licenses, totals),
+        "dashboard": _dashboard(budget_assets, budget_licenses, totals, budget_total),
         "asset_count": len(assets),
         "license_count": len(licenses),
         "adjustments": _adjustment_rows(adjustments),
@@ -382,11 +399,15 @@ def overview_summary(assets: Any, licenses: Any, adjustments: Any,
     licenses = list(licenses)
     names = {p.id: p.name for p in projects}
 
+    # Overall-budget projects contribute to the total but not to the split, so
+    # the breakdown stays honest instead of inventing a per-type share.
+    budgets = [project_budget(p) for p in projects]
     summary = summarize(
         assets, licenses, adjustments,
-        sum(_money(p.budget_assets) for p in projects),
-        sum(_money(p.budget_licenses) for p in projects),
+        sum(b[1] for b in budgets),
+        sum(b[2] for b in budgets),
         today, extra_years=extra_years,
+        budget_total=sum(b[0] for b in budgets),
     )
 
     return {

@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from .config import (
     ASPICE_PROCESSES,
     HARDWARE_BILLING,
+    HW_BUDGET_MODES,
     LEVELS,
     LOCATIONS,
     PROJECT_STATUSES,
@@ -572,9 +573,20 @@ class HwProjectInput(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     company: str = Field("", max_length=255)
     description: str = Field("", max_length=4000)
+    # "split" budgets assets and licenses separately; "overall" approves one
+    # number and leaves the split unknown.
+    budget_mode: str = Field("split")
+    budget_total: float = Field(0.0, ge=0.0)
     budget_assets: float = Field(0.0, ge=0.0)
     budget_licenses: float = Field(0.0, ge=0.0)
     portal_reference: str = Field("", max_length=255)
+
+    @field_validator("budget_mode")
+    @classmethod
+    def _known_budget_mode(cls, value: str) -> str:
+        if value not in HW_BUDGET_MODES:
+            raise ValueError(f"budget_mode must be one of {HW_BUDGET_MODES}")
+        return value
 
 
 class HwProjectOut(HwProjectInput):
@@ -797,4 +809,5 @@ class HwMetaOut(BaseModel):
     asset_statuses: list[str]
     asset_categories: list[str]
     license_categories: list[str]
+    budget_modes: list[str]
     leasing_months: int

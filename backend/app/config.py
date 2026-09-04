@@ -45,6 +45,9 @@ HW_LICENSE_CATEGORIES = [
     "Floating License", "Maintenance",
 ]
 
+# A hardware budget is either one approved number or a split by type.
+HW_BUDGET_MODES = ["split", "overall"]
+
 # The working document amortises leasing over a fixed 36 months, independent of
 # the actual contract length.
 HW_LEASING_MONTHS = 36
