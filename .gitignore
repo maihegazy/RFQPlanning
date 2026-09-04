@@ -23,3 +23,4 @@ dist/
 .pytest_cache/
 .coverage
 tsconfig.tsbuildinfo
+frontend/undefined/

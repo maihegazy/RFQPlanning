@@ -7,7 +7,6 @@ import { MONTH_NAMES } from '../utils'
 import { downloadBlob } from '../download'
 import { useVault } from '../vault/VaultContext'
 import { VaultDialog, VaultStatusButton } from '../vault/VaultGate'
-import HardwareCatalogModal from '../components/HardwareCatalogModal'
 import { emptyMoneyConfig, type MoneyConfig } from '../money/types'
 
 type LegacyImport = {
@@ -162,7 +161,6 @@ export default function ProjectsPage() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [showCreate, setShowCreate] = useState(false)
-  const [showCatalog, setShowCatalog] = useState(false)
   const [statusFilter, setStatusFilter] = useState<string>('')
   const [search, setSearch] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('updated')
@@ -405,12 +403,6 @@ export default function ProjectsPage() {
           </Select>
         </div>
         <div className="h-6 w-px bg-slate-800" />
-        <Link to="/portfolio">
-          <Button variant="secondary">📊 Portfolio</Button>
-        </Link>
-        <Button variant="secondary" onClick={() => setShowCatalog(true)}>
-          🔧 Hardware Catalog
-        </Button>
         <input
           ref={fileInput}
           type="file"
@@ -439,7 +431,9 @@ export default function ProjectsPage() {
             }`}
           >
             {tab.label}
-            <span className={statusFilter === tab.key ? 'ml-1.5 text-indigo-200' : 'ml-1.5 text-slate-500'}>
+            {/* The count sits on the solid indigo pill, so it stays white-on-accent
+                in both themes rather than following the accent text ramp. */}
+            <span className={statusFilter === tab.key ? 'ml-1.5 text-white/70' : 'ml-1.5 text-slate-500'}>
               {counts[tab.key] ?? 0}
             </span>
           </button>
@@ -514,8 +508,6 @@ export default function ProjectsPage() {
           }}
         />
       )}
-      {showCatalog && <HardwareCatalogModal onClose={() => setShowCatalog(false)} />}
-
       {showImportVault && (
         <VaultDialog
           onUnlocked={() => setImportReady(true)}

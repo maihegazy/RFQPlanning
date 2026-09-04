@@ -1,9 +1,10 @@
 """SQLAlchemy ORM models."""
 
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     Boolean,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -281,3 +282,159 @@ class TicketQuota(Base):
     quota_pct: Mapped[float] = mapped_column(Float, default=0.0)
 
     project: Mapped[Project] = relationship(back_populates="ticket_quotas")
+
+
+class HwProject(Base):
+    """A hardware purchasing project: the unit the working document tracked per file.
+
+    Deliberately independent of `Project` (the RFQ quotation): purchasing runs on its
+    own project list. `portal_reference` is reserved for the later link to the company
+    portal's project list.
+    """
+
+    __tablename__ = "hw_projects"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    company: Mapped[str] = mapped_column(String(255), default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    # A budget is approved either as one number or split by type; `budget_mode`
+    # says which of the two is the real one, so an unused figure left over from
+    # the other mode can never quietly change a total.
+    budget_mode: Mapped[str] = mapped_column(String(16), default="split")
+    budget_total: Mapped[float] = mapped_column(Float, default=0.0)
+    budget_assets: Mapped[float] = mapped_column(Float, default=0.0)
+    budget_licenses: Mapped[float] = mapped_column(Float, default=0.0)
+    # Optional planning window; the summary always spans at least these years so a
+    # project shows its full budget horizon before anything is purchased.
+    start_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    end_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    portal_reference: Mapped[str] = mapped_column(String(255), default="")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    assets: Mapped[list["HwAsset"]] = relationship(
+        back_populates="hw_project", cascade="all, delete-orphan", order_by="HwAsset.id"
+    )
+    licenses: Mapped[list["HwLicense"]] = relationship(
+        back_populates="hw_project", cascade="all, delete-orphan", order_by="HwLicense.id"
+    )
+    adjustments: Mapped[list["HwBudgetAdjustment"]] = relationship(
+        back_populates="hw_project",
+        cascade="all, delete-orphan",
+        order_by="HwBudgetAdjustment.id",
+    )
+
+
+class HwAsset(Base):
+    """One row of the working document's Assets register.
+
+    `purchase_type` drives the per-year depreciation: only Purchase and Leasing
+    rows produce cost, so a new row starts as "Not Purchased".
+    """
+
+    __tablename__ = "hw_assets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    hw_project_id: Mapped[int] = mapped_column(
+        ForeignKey("hw_projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    asset_tag: Mapped[str] = mapped_column(String(255), default="")  # sheet column "ID"
+    company: Mapped[str] = mapped_column(String(255), default="")
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    serial: Mapped[str] = mapped_column(String(255), default="")
+    model: Mapped[str] = mapped_column(String(255), default="")
+    category: Mapped[str] = mapped_column(String(255), default="")
+    status: Mapped[str] = mapped_column(String(255), default="")
+    supplier: Mapped[str] = mapped_column(String(255), default="")
+    purchase_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    purchase_cost: Mapped[float] = mapped_column(Float, default=0.0)
+    order_number: Mapped[str] = mapped_column(String(255), default="")
+    eol_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    assigned_employee: Mapped[str] = mapped_column(String(255), default="")
+    sw_license: Mapped[str] = mapped_column(String(255), default="")
+    purchased_by: Mapped[str] = mapped_column(String(255), default="")
+    purchase_type: Mapped[str] = mapped_column(String(32), default="Not Purchased")
+    catalog_item_id: Mapped[int | None] = mapped_column(
+        ForeignKey("hardware_catalog_items.id", ondelete="SET NULL"), nullable=True
+    )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    hw_project: Mapped[HwProject] = relationship(back_populates="assets")
+    catalog_item: Mapped["HardwareCatalogItem | None"] = relationship(
+        "HardwareCatalogItem"
+    )
+
+
+class HwLicense(Base):
+    """One row of the working document's Licenses register.
+
+    `quantity` is the sheet's "Total" column; `depreciation` is the licence-side
+    name for the asset register's "Purchase Type" and feeds the same engine.
+    """
+
+    __tablename__ = "hw_licenses"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    hw_project_id: Mapped[int] = mapped_column(
+        ForeignKey("hw_projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    license_tag: Mapped[str] = mapped_column(String(255), default="")  # sheet column "ID"
+    company: Mapped[str] = mapped_column(String(255), default="")
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    product_key: Mapped[str] = mapped_column(String(255), default="")
+    expiration_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    licensed_to_email: Mapped[str] = mapped_column(String(255), default="")
+    category: Mapped[str] = mapped_column(String(255), default="")
+    supplier: Mapped[str] = mapped_column(String(255), default="")
+    manufacturer: Mapped[str] = mapped_column(String(255), default="")
+    quantity: Mapped[int] = mapped_column(Integer, default=1)
+    purchase_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    termination_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    depreciation: Mapped[str] = mapped_column(String(32), default="Not Purchased")
+    maintained: Mapped[bool] = mapped_column(Boolean, default=False)
+    purchase_cost: Mapped[float] = mapped_column(Float, default=0.0)
+    purchase_order_number: Mapped[str] = mapped_column(String(255), default="")
+    notes: Mapped[str] = mapped_column(Text, default="")
+    catalog_item_id: Mapped[int | None] = mapped_column(
+        ForeignKey("hardware_catalog_items.id", ondelete="SET NULL"), nullable=True
+    )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    hw_project: Mapped[HwProject] = relationship(back_populates="licenses")
+    catalog_item: Mapped["HardwareCatalogItem | None"] = relationship(
+        "HardwareCatalogItem"
+    )
+
+
+class HwBudgetAdjustment(Base):
+    """Manual per-year correction, the Summary sheet's "Special Cases Budget".
+
+    Added to the depreciated actuals of one register (`kind` = assets | licenses)
+    for costs the two registers cannot express.
+    """
+
+    __tablename__ = "hw_budget_adjustments"
+    __table_args__ = (UniqueConstraint("hw_project_id", "year", "kind"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    hw_project_id: Mapped[int] = mapped_column(
+        ForeignKey("hw_projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    year: Mapped[int] = mapped_column(Integer, nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    amount: Mapped[float] = mapped_column(Float, default=0.0)
+    note: Mapped[str] = mapped_column(String(1000), default="")
+
+    hw_project: Mapped[HwProject] = relationship(back_populates="adjustments")

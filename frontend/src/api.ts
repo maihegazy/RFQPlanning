@@ -5,6 +5,19 @@ import type {
   HardwareItem,
   HardwareItemInput,
   HardwarePlan,
+  HwAdjustment,
+  HwAsset,
+  HwAssetInput,
+  HwImportPreview,
+  HwImportResult,
+  HwLicense,
+  HwLicenseInput,
+  HwMeta,
+  HwOverview,
+  HwProject,
+  HwProjectInput,
+  HwProjectRollup,
+  HwSummary,
   LegacyMoney,
   Meta,
   MoneyBlob,
@@ -30,23 +43,62 @@ class ApiError extends Error {
   }
 }
 
+/** The single place a failed Response becomes an ApiError. No-op while `resp.ok`. */
+async function throwForStatus(resp: Response): Promise<void> {
+  if (resp.ok) return
+  let detail = resp.statusText
+  try {
+    const body: unknown = await resp.json()
+    if (body !== null && typeof body === 'object' && 'detail' in body) {
+      const raw = body.detail
+      if (typeof raw === 'string') detail = raw
+      else if (raw) detail = JSON.stringify(raw)
+    }
+  } catch {
+    /* keep statusText */
+  }
+  throw new ApiError(resp.status, detail)
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const resp = await fetch(`${BASE}${path}`, {
     headers: { 'Content-Type': 'application/json' },
     ...options,
   })
-  if (!resp.ok) {
-    let detail = resp.statusText
-    try {
-      const body = await resp.json()
-      if (typeof body.detail === 'string') detail = body.detail
-      else if (body.detail) detail = JSON.stringify(body.detail)
-    } catch {
-      /* keep statusText */
-    }
-    throw new ApiError(resp.status, detail)
-  }
+  await throwForStatus(resp)
   if (resp.status === 204) return undefined as T
+  return resp.json()
+}
+
+/* `request()` pins Content-Type to application/json, which would strip the
+ * multipart boundary, so the upload talks to fetch directly. */
+async function importHwWorkbook(
+  projectId: number,
+  file: File,
+  dryRun: true,
+): Promise<HwImportPreview>
+async function importHwWorkbook(
+  projectId: number,
+  file: File,
+  dryRun: false,
+): Promise<HwImportResult>
+async function importHwWorkbook(
+  projectId: number,
+  file: File,
+  dryRun: boolean,
+): Promise<HwImportPreview | HwImportResult>
+async function importHwWorkbook(
+  projectId: number,
+  file: File,
+  dryRun: boolean,
+): Promise<HwImportPreview | HwImportResult> {
+  const form = new FormData()
+  form.append('file', file)
+  const resp = await fetch(
+    `${BASE}/api/hw/projects/${projectId}/import?dry_run=${dryRun ? 'true' : 'false'}`,
+    { method: 'POST', body: form },
+  )
+  await throwForStatus(resp)
   return resp.json()
 }
 
@@ -202,6 +254,74 @@ export const api = {
     request<LegacyMoney>(`/api/projects/${projectId}/financial-data/legacy`),
   purgeLegacyMoney: (projectId: number) =>
     request<void>(`/api/projects/${projectId}/financial-data/purge-plaintext`, { method: 'POST' }),
+
+  // Hardware management: asset/license registers, depreciation and budget
+  getHwMeta: () => request<HwMeta>('/api/hw/meta'),
+  getHwOverview: () => request<HwOverview>('/api/hw/overview'),
+
+  listHwProjects: () => request<HwProjectRollup[]>('/api/hw/projects'),
+  createHwProject: (data: HwProjectInput) =>
+    request<HwProject>('/api/hw/projects', { method: 'POST', body: JSON.stringify(data) }),
+  getHwProject: (id: number) => request<HwProject>(`/api/hw/projects/${id}`),
+  updateHwProject: (id: number, data: HwProjectInput) =>
+    request<HwProject>(`/api/hw/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteHwProject: (id: number) =>
+    request<void>(`/api/hw/projects/${id}`, { method: 'DELETE' }),
+  getHwSummary: (projectId: number) =>
+    request<HwSummary>(`/api/hw/projects/${projectId}/summary`),
+
+  listHwAssets: (projectId: number) =>
+    request<HwAsset[]>(`/api/hw/projects/${projectId}/assets`),
+  createHwAsset: (projectId: number, data: HwAssetInput) =>
+    request<HwAsset>(`/api/hw/projects/${projectId}/assets`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  replaceHwAssets: (projectId: number, items: HwAssetInput[]) =>
+    request<HwAsset[]>(`/api/hw/projects/${projectId}/assets`, {
+      method: 'PUT',
+      body: JSON.stringify({ items }),
+    }),
+  updateHwAsset: (assetId: number, data: HwAssetInput) =>
+    request<HwAsset>(`/api/hw/assets/${assetId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deleteHwAsset: (assetId: number) =>
+    request<void>(`/api/hw/assets/${assetId}`, { method: 'DELETE' }),
+
+  listHwLicenses: (projectId: number) =>
+    request<HwLicense[]>(`/api/hw/projects/${projectId}/licenses`),
+  createHwLicense: (projectId: number, data: HwLicenseInput) =>
+    request<HwLicense>(`/api/hw/projects/${projectId}/licenses`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  replaceHwLicenses: (projectId: number, items: HwLicenseInput[]) =>
+    request<HwLicense[]>(`/api/hw/projects/${projectId}/licenses`, {
+      method: 'PUT',
+      body: JSON.stringify({ items }),
+    }),
+  updateHwLicense: (licenseId: number, data: HwLicenseInput) =>
+    request<HwLicense>(`/api/hw/licenses/${licenseId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deleteHwLicense: (licenseId: number) =>
+    request<void>(`/api/hw/licenses/${licenseId}`, { method: 'DELETE' }),
+
+  getHwAdjustments: (projectId: number) =>
+    request<HwAdjustment[]>(`/api/hw/projects/${projectId}/adjustments`),
+  replaceHwAdjustments: (projectId: number, items: HwAdjustment[]) =>
+    request<HwAdjustment[]>(`/api/hw/projects/${projectId}/adjustments`, {
+      method: 'PUT',
+      body: JSON.stringify({ items }),
+    }),
+
+  hwExportXlsxUrl: (projectId: number) =>
+    `${BASE}/api/hw/projects/${projectId}/export.xlsx`,
+  hwImportTemplateUrl: () => `${BASE}/api/hw/import-template.xlsx`,
+  importHwWorkbook,
 }
 
 export { ApiError }

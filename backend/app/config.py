@@ -28,6 +28,30 @@ ASPICE_PROCESSES = [
 # Billing modes for hardware/tool items
 HARDWARE_BILLING = ["yearly", "once"]
 
+# Hardware management vocabularies (from the HW purchasing working document).
+# These populate dropdowns only; the registers still accept free text.
+HW_PURCHASE_TYPES = ["Purchase", "Leasing", "Planned Purchase", "Not Purchased"]
+
+HW_ASSET_STATUSES = ["In Stock", "Labeled", "Labeled Deployed", "Return", "Depreciation"]
+
+HW_ASSET_CATEGORIES = [
+    "Board", "Dongle", "ECU", "Flexray/CAN Interface",
+    "Lauterbach debugger", "PC", "Power supply",
+    "ProgrammablePower supply", "Server / PC", "Vector Box",
+]
+
+HW_LICENSE_CATEGORIES = [
+    "Compiler", "Debugger License", "Dongles license",
+    "Floating License", "Maintenance",
+]
+
+# A hardware budget is either one approved number or a split by type.
+HW_BUDGET_MODES = ["split", "overall"]
+
+# The working document amortises leasing over a fixed 36 months, independent of
+# the actual contract length.
+HW_LEASING_MONTHS = 36
+
 # Default rate-configuration values
 DEFAULT_SP_TO_HOURS = 4.0
 DEFAULT_HW_COST_PER_HOUR = 0.0
