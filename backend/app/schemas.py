@@ -223,6 +223,8 @@ class ProjectSummary(ProjectBase):
     id: int
     base_project_id: int | None = None
     is_winning_scenario: bool = False
+    # Optimistic-concurrency token: send it back as `expected_version` on writes.
+    version: int = 1
     created_at: datetime
     updated_at: datetime
 
@@ -252,6 +254,8 @@ class RateConfigOut(ApiModel):
     risk_factor_pct: float
     ticket_story_points: dict[str, float]
     ticket_quotas: dict[int, dict[str, float]]
+    # The project's version after the read or write, for the next `expected_version`.
+    version: int = 1
 
 
 class RateConfigUpdate(ApiModel):
@@ -259,6 +263,8 @@ class RateConfigUpdate(ApiModel):
     risk_factor_pct: float | None = Field(None, ge=0.0, le=1_000_000)
     ticket_story_points: dict[str, float] | None = None
     ticket_quotas: dict[int, dict[str, float]] | None = None
+    # The project version the client last saw; a mismatch is a 409, nothing is written.
+    expected_version: int | None = Field(None, ge=1)
 
     @field_validator("ticket_story_points")
     @classmethod
@@ -465,6 +471,11 @@ class ValidationResult(ApiModel):
 # Vault (end-to-end encrypted money data)
 # ---------------------------------------------------------------------------
 
+# A digest of the unwrapped data key (base64 SHA-256), computed in the browser
+# after a successful unlock. The server stores it and never returns it.
+Verifier = Annotated[str, Field(min_length=16, max_length=64)]
+
+
 class VaultKeys(ApiModel):
     kdf_salt: str = Field(..., max_length=64)
     kdf_iterations: int = Field(..., ge=100_000, le=10_000_000)
@@ -472,11 +483,10 @@ class VaultKeys(ApiModel):
     wrapped_dek_passphrase: str = Field(..., max_length=256)
     wrapped_dek_recovery_iv: str = Field(..., max_length=64)
     wrapped_dek_recovery: str = Field(..., max_length=256)
+    dek_verifier: Verifier
 
 
 class VaultOut(ApiModel):
-    model_config = ConfigDict(from_attributes=True)
-
     exists: bool = True
     kdf_salt: str
     kdf_iterations: int
@@ -484,18 +494,53 @@ class VaultOut(ApiModel):
     wrapped_dek_passphrase: str
     wrapped_dek_recovery_iv: str
     wrapped_dek_recovery: str
+    # False on a vault created before verifiers existed, until its first unlock
+    # registers one (POST /api/vault/verifier).
+    has_verifier: bool = False
 
 
-class VaultPassphraseUpdate(ApiModel):
+class VaultCurrentKey(ApiModel):
+    """The passphrase copy of the key as the client last read it.
+
+    Sent back with every change so a request built from a stale read (someone
+    else changed the passphrase in between) is refused instead of applied.
+    """
+
+    current_wrapped_dek_passphrase_iv: str = Field(..., max_length=64)
+    current_wrapped_dek_passphrase: str = Field(..., max_length=256)
+
+
+class VaultPassphraseUpdate(VaultCurrentKey):
     kdf_salt: str = Field(..., max_length=64)
     kdf_iterations: int = Field(..., ge=100_000, le=10_000_000)
     wrapped_dek_passphrase_iv: str = Field(..., max_length=64)
     wrapped_dek_passphrase: str = Field(..., max_length=256)
+    dek_verifier: Verifier
 
 
-class MoneyBlob(ApiModel):
+class VaultVerifierRegistration(VaultCurrentKey):
+    dek_verifier: Verifier
+
+
+class MoneyBlobOut(ApiModel):
+    encrypted_money: str | None = None
+    money_iv: str | None = None
+    # The project's version after the read or write, for the next `expected_version`.
+    version: int = 1
+
+
+class MoneyBlobUpdate(ApiModel):
     encrypted_money: str | None = None
     money_iv: str | None = Field(None, max_length=64)
+    expected_version: int | None = Field(None, ge=1)
+
+    @model_validator(mode="after")
+    def both_or_neither(self):
+        # Ciphertext without its IV (or the other way round) can never be
+        # decrypted; storing it would lose the project's money silently.
+        if (self.encrypted_money is None) != (self.money_iv is None):
+            raise ValueError("encrypted_money and money_iv must be given together or not at all")
+        return self
 
 
 class GridRoleUpdate(ApiModel):
@@ -623,6 +668,17 @@ class HardwareItemUpdate(HardwareItemBase):
     catalog_item_id: int | None = None
 
 
+class HardwareItemUpsert(HardwareItemCreate):
+    """A row of a whole-plan save: an id keeps the stored row, none creates one."""
+
+    id: int | None = None
+
+
+class HardwareBulkUpdate(ApiModel):
+    items: list[HardwareItemUpsert] = Field(default_factory=list)
+    expected_version: int | None = Field(None, ge=1)
+
+
 class HardwareItemOut(HardwareItemBase):
     model_config = ConfigDict(from_attributes=True)
 
@@ -638,6 +694,8 @@ class HardwarePlanOut(ApiModel):
     grand_total: float
     # Rows planned for a year the project no longer covers (a shortened timeline).
     warnings: list[str] = Field(default_factory=list)
+    # The project's version after the read or write, for the next `expected_version`.
+    version: int = 1
 
 
 # ---------------------------------------------------------------------------
@@ -668,6 +726,8 @@ class HwProjectOut(HwProjectInput):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    # Optimistic-concurrency token: send it back as `expected_version` on writes.
+    version: int = 1
     created_at: datetime
     updated_at: datetime
 
@@ -688,6 +748,9 @@ class HwProjectRollupOut(HwProjectOut):
 # The vocabularies in config.py only populate the dropdowns: the registers were
 # free text in the sheet and stay free text here, so no value validators.
 class HwAssetInput(ApiModel):
+    # In a whole-register save, an id keeps the stored row (its id and
+    # created_at survive); a row without one is created.
+    id: int | None = None
     asset_tag: str = Field("", max_length=255)
     company: str = Field("", max_length=255)
     name: str = Field(..., min_length=1, max_length=255)
@@ -720,6 +783,7 @@ class HwAssetOut(HwAssetInput):
 
 
 class HwLicenseInput(ApiModel):
+    id: int | None = None
     license_tag: str = Field("", max_length=255)
     company: str = Field("", max_length=255)
     name: str = Field(..., min_length=1, max_length=255)
@@ -754,10 +818,22 @@ class HwLicenseOut(HwLicenseInput):
 
 class HwAssetBulk(ApiModel):
     items: list[HwAssetInput] = Field(default_factory=list)
+    expected_version: int | None = Field(None, ge=1)
+
+
+class HwAssetBulkOut(ApiModel):
+    version: int
+    items: list[HwAssetOut]
 
 
 class HwLicenseBulk(ApiModel):
     items: list[HwLicenseInput] = Field(default_factory=list)
+    expected_version: int | None = Field(None, ge=1)
+
+
+class HwLicenseBulkOut(ApiModel):
+    version: int
+    items: list[HwLicenseOut]
 
 
 class HwAdjustment(ApiModel):
@@ -783,6 +859,7 @@ class HwAdjustment(ApiModel):
 
 class HwAdjustmentBulk(ApiModel):
     items: list[HwAdjustment] = Field(default_factory=list)
+    expected_version: int | None = Field(None, ge=1)
 
     @model_validator(mode="after")
     def unique_year_and_kind(self):
@@ -796,6 +873,11 @@ class HwAdjustmentBulk(ApiModel):
                 )
             seen.add(key)
         return self
+
+
+class HwAdjustmentBulkOut(ApiModel):
+    version: int
+    items: list[HwAdjustment]
 
 
 class HwYearRow(ApiModel):

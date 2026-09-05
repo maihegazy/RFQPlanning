@@ -28,6 +28,7 @@ def get_rate_config(project: models.Project) -> dict:
         "risk_factor_pct": project.risk_factor_pct,
         "ticket_story_points": ticket_story_points,
         "ticket_quotas": ticket_quotas,
+        "version": project.version,
     }
 
 

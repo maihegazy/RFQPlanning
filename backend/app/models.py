@@ -4,6 +4,7 @@ from datetime import date, datetime
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     Float,
@@ -58,6 +59,10 @@ class Project(Base):
     is_winning_scenario: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default=false()
     )
+
+    # Moves on every write to the project or anything inside it; the write
+    # endpoints compare it with the version a client last saw (409 on mismatch).
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
@@ -157,14 +162,28 @@ class Vault(Base):
     """
 
     __tablename__ = "vault"
+    __table_args__ = (
+        # Exactly one row can carry singleton = 1, so two first-time users racing
+        # to create the vault cannot both succeed.
+        UniqueConstraint("singleton", name="uq_vault_singleton"),
+        CheckConstraint("singleton = 1", name="ck_vault_singleton"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    singleton: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
     kdf_salt: Mapped[str] = mapped_column(String(64), nullable=False)
     kdf_iterations: Mapped[int] = mapped_column(Integer, nullable=False)
     wrapped_dek_passphrase_iv: Mapped[str] = mapped_column(String(64), nullable=False)
     wrapped_dek_passphrase: Mapped[str] = mapped_column(String(256), nullable=False)
     wrapped_dek_recovery_iv: Mapped[str] = mapped_column(String(64), nullable=False)
     wrapped_dek_recovery: Mapped[str] = mapped_column(String(256), nullable=False)
+    # A digest of the unwrapped data key, computed in the browser after a
+    # successful unlock. Replacing the passphrase copy of the key requires it,
+    # so a blind request cannot lock everyone out. Null on vaults created before
+    # the column existed, until their first unlock registers it.
+    dek_verifier: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
@@ -311,6 +330,9 @@ class HwProject(Base):
     start_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     end_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     portal_reference: Mapped[str] = mapped_column(String(255), default="")
+
+    # See Project.version.
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
@@ -479,19 +501,27 @@ def _owner_of(session: Session, obj: object) -> Project | HwProject | None:
 
 @event.listens_for(Session, "before_flush")
 def touch_owner_timestamps(session: Session, _flush_context, _instances) -> None:
-    """Bump the owning project's `updated_at` for every child row written.
+    """Move the owning project's `updated_at` and `version` for every row written.
 
     `onupdate` only fires for the project's own columns, so without this the
     "recently updated" order and the "updated 3 days ago" label ignored every
-    feature, role, allocation, rate, blob and hardware change.
+    feature, role, allocation, rate, blob and hardware change. The version is the
+    optimistic-concurrency token the write endpoints compare (see
+    `services.versioning`); it moves once per flush however many rows changed.
     """
     now = datetime.utcnow()
     touched: set[int] = set()
     for obj in list(session.new) + list(session.dirty) + list(session.deleted):
         if obj in session.dirty and not session.is_modified(obj):
             continue
-        owner = _owner_of(session, obj)
+        if isinstance(obj, Project | HwProject):
+            # The project's own columns changed: a new or deleted project has
+            # no version to move.
+            owner = obj if obj in session.dirty else None
+        else:
+            owner = _owner_of(session, obj)
         if owner is None or owner in session.deleted or id(owner) in touched:
             continue
         owner.updated_at = now
+        owner.version = (owner.version or 0) + 1
         touched.add(id(owner))

@@ -322,18 +322,18 @@ def test_asset_bulk_replace(client, assets_project):
               purchase_type="Purchase"),
     ]})
     assert resp.status_code == 200, resp.text
-    rows = resp.json()
+    rows = resp.json()["items"]
     assert [row["asset_tag"] for row in rows] == ["B-1", "B-2"]
     assert rows[0]["per_year"] == {"2026": 1200.0, "2027": 1200.0, "2028": 1200.0}
     assert rows[1]["per_year"] == {"2026": 0.0, "2027": 250.0, "2028": 0.0}
-    # The replaced rows are gone, not merged
+    # Rows posted without an id are new; the ones the list no longer names are gone
     assert {row["id"] for row in rows}.isdisjoint({row["id"] for row in before})
     assert len(client.get(f"/api/hw/projects/{assets_project}/assets").json()) == 2
 
     # An empty list clears the register
     resp = client.put(f"/api/hw/projects/{assets_project}/assets", json={"items": []})
     assert resp.status_code == 200
-    assert resp.json() == []
+    assert resp.json()["items"] == []
 
 
 def test_asset_catalog_link(client, assets_project):
@@ -418,7 +418,7 @@ def test_license_bulk_replace(client, licenses_project):
                    purchase_cost=3600.0, depreciation="Leasing"),
     ]})
     assert resp.status_code == 200, resp.text
-    rows = resp.json()
+    rows = resp.json()["items"]
     assert len(rows) == 1
     assert rows[0]["per_year"] == {"2026": 1200.0, "2027": 1200.0, "2028": 1200.0}
 
@@ -464,7 +464,7 @@ def test_adjustments_replace(client, summary_project):
     resp = client.put(f"/api/hw/projects/{summary_project}/adjustments",
                       json={"items": items})
     assert resp.status_code == 200, resp.text
-    assert resp.json() == items
+    assert resp.json()["items"] == items
 
     # Replacing reuses the (year, kind) pairs: the deletes must land first
     resp = client.put(f"/api/hw/projects/{summary_project}/adjustments",

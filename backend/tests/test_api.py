@@ -184,9 +184,12 @@ def test_vault_lifecycle(client):
         "wrapped_dek_passphrase": "d3JhcHBlZC1wYXNz",
         "wrapped_dek_recovery_iv": "aXYyaXYyaXYy",
         "wrapped_dek_recovery": "d3JhcHBlZC1yZWM=",
+        "dek_verifier": "dmVyaWZpZXItb2YtdGhlLWRlaw==",
     }
     resp = client.post("/api/vault", json=keys)
     assert resp.status_code == 201, resp.text
+    assert resp.json()["has_verifier"] is True
+    assert "dek_verifier" not in resp.json()
 
     # Second setup rejected
     assert client.post("/api/vault", json=keys).status_code == 409
@@ -195,6 +198,7 @@ def test_vault_lifecycle(client):
     data = resp.json()
     assert data["exists"] is True
     assert data["wrapped_dek_recovery"] == keys["wrapped_dek_recovery"]
+    assert "dek_verifier" not in data
 
     # Passphrase change re-wraps only the passphrase copy
     resp = client.put("/api/vault/passphrase", json={
@@ -202,8 +206,11 @@ def test_vault_lifecycle(client):
         "kdf_iterations": 700000,
         "wrapped_dek_passphrase_iv": "bmV3aXY=",
         "wrapped_dek_passphrase": "bmV3LXdyYXBwZWQ=",
+        "current_wrapped_dek_passphrase_iv": keys["wrapped_dek_passphrase_iv"],
+        "current_wrapped_dek_passphrase": keys["wrapped_dek_passphrase"],
+        "dek_verifier": keys["dek_verifier"],
     })
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["kdf_iterations"] == 700000
     assert data["wrapped_dek_recovery"] == keys["wrapped_dek_recovery"]
@@ -211,14 +218,15 @@ def test_vault_lifecycle(client):
 
 def test_money_blob_roundtrip(client, project_id):
     resp = client.get(f"/api/projects/{project_id}/financial-data")
-    assert resp.json() == {"encrypted_money": None, "money_iv": None}
+    assert resp.json()["encrypted_money"] is None
+    assert resp.json()["money_iv"] is None
 
     blob = {"encrypted_money": "b3BhcXVlLWNpcGhlcnRleHQ=", "money_iv": "aXZpdml2"}
     resp = client.put(f"/api/projects/{project_id}/financial-data", json=blob)
     assert resp.status_code == 200
 
     resp = client.get(f"/api/projects/{project_id}/financial-data")
-    assert resp.json() == blob
+    assert {key: resp.json()[key] for key in blob} == blob
 
 
 def test_legacy_money_migration(client, project_id):
@@ -452,7 +460,9 @@ def test_scenarios(client, project_id):
     # Money blob copied verbatim
     base_money = client.get(f"/api/projects/{project_id}/financial-data").json()
     scen_money = client.get(f"/api/projects/{scenario['id']}/financial-data").json()
-    assert base_money == scen_money
+    # Versions move independently; the ciphertext and IV are what the clone copies
+    assert {k: base_money[k] for k in ("encrypted_money", "money_iv")} == \
+        {k: scen_money[k] for k in ("encrypted_money", "money_iv")}
 
     # Promote exclusivity
     resp = client.post(f"/api/projects/{scenario['id']}/promote")

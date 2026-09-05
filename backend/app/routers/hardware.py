@@ -16,6 +16,7 @@ from .. import models, schemas
 from ..database import get_db
 from ..services.calculations import hardware_item_years
 from ..services.http import attachment_disposition
+from ..services.versioning import require_version
 from .projects import get_project_or_404
 
 router = APIRouter(prefix="/api", tags=["hardware"])
@@ -103,6 +104,7 @@ def build_plan(project: models.Project) -> dict:
         "per_year": dict(sorted(per_year.items())),
         "grand_total": grand_total,
         "warnings": warnings,
+        "version": project.version,
     }
 
 
@@ -198,6 +200,64 @@ def create_hardware_item(project_id: int, data: schemas.HardwareItemCreate,
     db.commit()
     db.refresh(record)
     return serialize_item(record)
+
+
+@router.put("/projects/{project_id}/hardware", response_model=schemas.HardwarePlanOut)
+def replace_hardware_plan(project_id: int, data: schemas.HardwareBulkUpdate,
+                          db: Session = Depends(get_db)):
+    """Save the whole plan in one transaction: the posted rows become the plan.
+
+    A row with an id keeps its stored row, one without is created, and stored
+    rows the list no longer names are removed. Every check runs before the first
+    write, so a rejected save leaves the plan exactly as it was.
+    """
+    project = get_project_or_404(project_id, db)
+    require_version(db, project, data.expected_version)
+
+    wanted = {item.catalog_item_id for item in data.items if item.catalog_item_id is not None}
+    if wanted:
+        found = {
+            row[0]
+            for row in db.query(models.HardwareCatalogItem.id)
+            .filter(models.HardwareCatalogItem.id.in_(wanted))
+        }
+        missing = sorted(wanted - found)
+        if missing:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Catalog item(s) {', '.join(map(str, missing))} do not exist",
+            )
+    for item in data.items:
+        _validate_years_in_timeline(project, item.years)
+
+    existing = {item.id: item for item in project.hardware_items}
+    seen: set[int] = set()
+    kept = []
+    for position, item in enumerate(data.items, start=1):
+        payload = item.model_dump(exclude={"id", "years"})
+        if item.id is None:
+            record = models.HardwareItem(project_id=project.id, **payload)
+        else:
+            record = existing.get(item.id)
+            if record is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Row {position}: hardware item {item.id} is not in this plan",
+                )
+            if item.id in seen:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Row {position}: hardware item {item.id} is listed twice",
+                )
+            seen.add(item.id)
+            for field, value in payload.items():
+                setattr(record, field, value)
+        record.years_json = json.dumps(item.years)
+        kept.append(record)
+    project.hardware_items = kept
+    db.commit()
+    db.refresh(project)
+    return build_plan(project)
 
 
 def _get_item_or_404(item_id: int, db: Session) -> models.HardwareItem:

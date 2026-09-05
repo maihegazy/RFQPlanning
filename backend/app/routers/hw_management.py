@@ -25,6 +25,7 @@ from ..config import (
 from ..database import get_db
 from ..services import hw_depreciation, hw_excel
 from ..services.http import attachment_disposition
+from ..services.versioning import require_version
 from .hardware import XLSX_MEDIA_TYPE
 
 router = APIRouter(prefix="/api", tags=["hw-management"])
@@ -56,6 +57,39 @@ def get_hw_license_or_404(license_id: int, db: Session) -> models.HwLicense:
     if record is None:
         raise HTTPException(status_code=404, detail="Hardware license not found")
     return record
+
+
+def upsert_rows(existing_rows: list, items: list, model: type, label: str) -> list:
+    """The register a whole-grid save describes, reusing the stored rows.
+
+    A row that names an id keeps that row (so ids and `created_at` survive a save
+    and an audit trail stays possible); a row without one is created; stored rows
+    the list no longer names are removed by the relationship's delete-orphan
+    cascade once the caller assigns the result.
+    """
+    existing = {row.id: row for row in existing_rows}
+    seen: set[int] = set()
+    kept = []
+    for position, item in enumerate(items, start=1):
+        payload = item.model_dump(exclude={"id"})
+        if item.id is None:
+            kept.append(model(**payload))
+            continue
+        record = existing.get(item.id)
+        if record is None:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Row {position}: {label} {item.id} is not in this register",
+            )
+        if item.id in seen:
+            raise HTTPException(
+                status_code=422, detail=f"Row {position}: {label} {item.id} is listed twice"
+            )
+        seen.add(item.id)
+        for field, value in payload.items():
+            setattr(record, field, value)
+        kept.append(record)
+    return kept
 
 
 def check_catalog_items(catalog_item_ids, db: Session) -> None:
@@ -262,23 +296,28 @@ def create_hw_asset(project_id: int, data: schemas.HwAssetInput,
                     db: Session = Depends(get_db)):
     project = get_hw_project_or_404(project_id, db)
     check_catalog_items([data.catalog_item_id], db)
-    asset = models.HwAsset(hw_project_id=project.id, **data.model_dump())
+    asset = models.HwAsset(hw_project_id=project.id, **data.model_dump(exclude={"id"}))
     db.add(asset)
     db.commit()
     db.refresh(asset)
     return serialize_asset(asset, project_years(project))
 
 
-@router.put("/hw/projects/{project_id}/assets", response_model=list[schemas.HwAssetOut])
+@router.put("/hw/projects/{project_id}/assets", response_model=schemas.HwAssetBulkOut)
 def replace_hw_assets(project_id: int, data: schemas.HwAssetBulk,
                       db: Session = Depends(get_db)):
     """Save the whole assets grid: the posted list becomes the project's register."""
     project = get_hw_project_or_404(project_id, db)
+    require_version(db, project, data.expected_version)
     check_catalog_items([item.catalog_item_id for item in data.items], db)
-    project.assets = [models.HwAsset(**item.model_dump()) for item in data.items]
+    project.assets = upsert_rows(project.assets, data.items, models.HwAsset, "asset")
     db.commit()
+    db.refresh(project)
     years = project_years(project)
-    return [serialize_asset(asset, years) for asset in project.assets]
+    return {
+        "version": project.version,
+        "items": [serialize_asset(asset, years) for asset in project.assets],
+    }
 
 
 @router.put("/hw/assets/{asset_id}", response_model=schemas.HwAssetOut)
@@ -286,7 +325,7 @@ def update_hw_asset(asset_id: int, data: schemas.HwAssetInput,
                     db: Session = Depends(get_db)):
     asset = get_hw_asset_or_404(asset_id, db)
     check_catalog_items([data.catalog_item_id], db)
-    for field, value in data.model_dump().items():
+    for field, value in data.model_dump(exclude={"id"}).items():
         setattr(asset, field, value)
     db.commit()
     db.refresh(asset)
@@ -318,7 +357,7 @@ def create_hw_license(project_id: int, data: schemas.HwLicenseInput,
                       db: Session = Depends(get_db)):
     project = get_hw_project_or_404(project_id, db)
     check_catalog_items([data.catalog_item_id], db)
-    record = models.HwLicense(hw_project_id=project.id, **data.model_dump())
+    record = models.HwLicense(hw_project_id=project.id, **data.model_dump(exclude={"id"}))
     db.add(record)
     db.commit()
     db.refresh(record)
@@ -326,16 +365,21 @@ def create_hw_license(project_id: int, data: schemas.HwLicenseInput,
 
 
 @router.put("/hw/projects/{project_id}/licenses",
-            response_model=list[schemas.HwLicenseOut])
+            response_model=schemas.HwLicenseBulkOut)
 def replace_hw_licenses(project_id: int, data: schemas.HwLicenseBulk,
                         db: Session = Depends(get_db)):
     """Save the whole licenses grid: the posted list becomes the project's register."""
     project = get_hw_project_or_404(project_id, db)
+    require_version(db, project, data.expected_version)
     check_catalog_items([item.catalog_item_id for item in data.items], db)
-    project.licenses = [models.HwLicense(**item.model_dump()) for item in data.items]
+    project.licenses = upsert_rows(project.licenses, data.items, models.HwLicense, "license")
     db.commit()
+    db.refresh(project)
     years = project_years(project)
-    return [serialize_license(record, years) for record in project.licenses]
+    return {
+        "version": project.version,
+        "items": [serialize_license(record, years) for record in project.licenses],
+    }
 
 
 @router.put("/hw/licenses/{license_id}", response_model=schemas.HwLicenseOut)
@@ -343,7 +387,7 @@ def update_hw_license(license_id: int, data: schemas.HwLicenseInput,
                       db: Session = Depends(get_db)):
     record = get_hw_license_or_404(license_id, db)
     check_catalog_items([data.catalog_item_id], db)
-    for field, value in data.model_dump().items():
+    for field, value in data.model_dump(exclude={"id"}).items():
         setattr(record, field, value)
     db.commit()
     db.refresh(record)
@@ -369,10 +413,11 @@ def list_hw_adjustments(project_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/hw/projects/{project_id}/adjustments",
-            response_model=list[schemas.HwAdjustment])
+            response_model=schemas.HwAdjustmentBulkOut)
 def replace_hw_adjustments(project_id: int, data: schemas.HwAdjustmentBulk,
                            db: Session = Depends(get_db)):
     project = get_hw_project_or_404(project_id, db)
+    require_version(db, project, data.expected_version)
     project.adjustments = []
     # A flush orders the deletes before the inserts; without it a replacement
     # reusing a (year, kind) pair would collide with the row it is replacing.
@@ -381,7 +426,11 @@ def replace_hw_adjustments(project_id: int, data: schemas.HwAdjustmentBulk,
         models.HwBudgetAdjustment(**item.model_dump()) for item in data.items
     ]
     db.commit()
-    return sorted(project.adjustments, key=lambda a: (a.year, a.kind))
+    db.refresh(project)
+    return {
+        "version": project.version,
+        "items": sorted(project.adjustments, key=lambda a: (a.year, a.kind)),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -479,9 +528,9 @@ def import_hw_workbook(project_id: int, file: UploadFile = File(...),
         db.flush()
 
     for item in preview.assets:
-        db.add(models.HwAsset(hw_project_id=project.id, **item.model_dump()))
+        db.add(models.HwAsset(hw_project_id=project.id, **item.model_dump(exclude={"id"})))
     for item in preview.licenses:
-        db.add(models.HwLicense(hw_project_id=project.id, **item.model_dump()))
+        db.add(models.HwLicense(hw_project_id=project.id, **item.model_dump(exclude={"id"})))
     db.commit()
     return schemas.HwImportResult(
         created_assets=len(preview.assets),
