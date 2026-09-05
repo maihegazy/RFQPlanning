@@ -7,7 +7,12 @@ import { useVault } from '../vault/VaultContext'
 import { VaultPrompt } from '../vault/VaultGate'
 import { computeBudgetPlan } from '../money/engine'
 import { downloadBudgetWorkbook } from '../money/excelBudget'
-import { emptyMoneyConfig, normalizeMoneyConfig, type BudgetPlan, type MoneyConfig } from '../money/types'
+import {
+  emptyMoneyConfig,
+  normalizeMoneyConfig,
+  type BudgetPlan,
+  type MoneyConfig,
+} from '../money/types'
 
 export default function ReportsTab({ project, meta }: { project: Project; meta: Meta }) {
   const vault = useVault()
@@ -80,9 +85,9 @@ export default function ReportsTab({ project, meta }: { project: Project; meta: 
 
       {!unlocked ? (
         <VaultPrompt>
-          Cost-profit analysis, ticket revenue and budget pivots are computed from
-          end-to-end encrypted financial data. Unlock the vault to view them — the
-          resource plan below is available without unlocking.
+          Cost-profit analysis, ticket revenue and budget pivots are computed from end-to-end
+          encrypted financial data. Unlock the vault to view them — the resource plan below is
+          available without unlocking.
         </VaultPrompt>
       ) : budget === null ? (
         <Spinner />

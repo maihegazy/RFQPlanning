@@ -138,10 +138,8 @@ export const api = {
   getProject: (id: number) => request<Project>(`/api/projects/${id}`),
   updateProject: (id: number, data: Partial<ProjectSummary>) =>
     request<Project>(`/api/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  deleteProject: (id: number) =>
-    request<void>(`/api/projects/${id}`, { method: 'DELETE' }),
-  validateProject: (id: number) =>
-    request<ValidationResult>(`/api/projects/${id}/validate`),
+  deleteProject: (id: number) => request<void>(`/api/projects/${id}`, { method: 'DELETE' }),
+  validateProject: (id: number) => request<ValidationResult>(`/api/projects/${id}/validate`),
   exportProject: (id: number) => request<unknown>(`/api/projects/${id}/export`),
   importProject: (data: unknown) =>
     request<Project>('/api/projects/import', { method: 'POST', body: JSON.stringify(data) }),
@@ -166,8 +164,7 @@ export const api = {
     }),
   updateRole: (roleId: number, data: RoleInput) =>
     request<Role>(`/api/roles/${roleId}`, { method: 'PUT', body: JSON.stringify(data) }),
-  deleteRole: (roleId: number) =>
-    request<void>(`/api/roles/${roleId}`, { method: 'DELETE' }),
+  deleteRole: (roleId: number) => request<void>(`/api/roles/${roleId}`, { method: 'DELETE' }),
 
   updateResourceGrid: (
     projectId: number,
@@ -178,8 +175,7 @@ export const api = {
       body: JSON.stringify({ roles }),
     }),
 
-  getRates: (projectId: number) =>
-    request<RateConfig>(`/api/projects/${projectId}/rates`),
+  getRates: (projectId: number) => request<RateConfig>(`/api/projects/${projectId}/rates`),
   updateRates: (projectId: number, data: Partial<RateConfig>) =>
     request<RateConfig>(`/api/projects/${projectId}/rates`, {
       method: 'PUT',
@@ -265,13 +261,10 @@ export const api = {
   getHwProject: (id: number) => request<HwProject>(`/api/hw/projects/${id}`),
   updateHwProject: (id: number, data: HwProjectInput) =>
     request<HwProject>(`/api/hw/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  deleteHwProject: (id: number) =>
-    request<void>(`/api/hw/projects/${id}`, { method: 'DELETE' }),
-  getHwSummary: (projectId: number) =>
-    request<HwSummary>(`/api/hw/projects/${projectId}/summary`),
+  deleteHwProject: (id: number) => request<void>(`/api/hw/projects/${id}`, { method: 'DELETE' }),
+  getHwSummary: (projectId: number) => request<HwSummary>(`/api/hw/projects/${projectId}/summary`),
 
-  listHwAssets: (projectId: number) =>
-    request<HwAsset[]>(`/api/hw/projects/${projectId}/assets`),
+  listHwAssets: (projectId: number) => request<HwAsset[]>(`/api/hw/projects/${projectId}/assets`),
   createHwAsset: (projectId: number, data: HwAssetInput) =>
     request<HwAsset>(`/api/hw/projects/${projectId}/assets`, {
       method: 'POST',
@@ -318,8 +311,7 @@ export const api = {
       body: JSON.stringify({ items }),
     }),
 
-  hwExportXlsxUrl: (projectId: number) =>
-    `${BASE}/api/hw/projects/${projectId}/export.xlsx`,
+  hwExportXlsxUrl: (projectId: number) => `${BASE}/api/hw/projects/${projectId}/export.xlsx`,
   hwImportTemplateUrl: () => `${BASE}/api/hw/import-template.xlsx`,
   importHwWorkbook,
 }

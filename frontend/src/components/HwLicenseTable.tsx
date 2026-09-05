@@ -298,7 +298,10 @@ export function HwLicenseTable({ rows, years, meta, catalog, onChange }: HwLicen
     })
     const sumYear = (index: number, planned: boolean) =>
       round2(
-        perRow.reduce((sum, entry) => (entry.planned === planned ? sum + entry.cells[index] : sum), 0),
+        perRow.reduce(
+          (sum, entry) => (entry.planned === planned ? sum + entry.cells[index] : sum),
+          0,
+        ),
       )
     const sumTotal = (planned: boolean) =>
       round2(
@@ -398,7 +401,10 @@ export function HwLicenseTable({ rows, years, meta, catalog, onChange }: HwLicen
             {rows.map((row, index) => {
               const computed = totals.perRow[index]
               return (
-                <tr key={index} className="border-b border-slate-800 align-top hover:bg-slate-800/30">
+                <tr
+                  key={index}
+                  className="border-b border-slate-800 align-top hover:bg-slate-800/30"
+                >
                   <td className={`py-2 pr-2 ${PINNED_LEFT}`}>
                     <div className="w-52">
                       <Input
@@ -464,9 +470,7 @@ export function HwLicenseTable({ rows, years, meta, catalog, onChange }: HwLicen
                         type="date"
                         aria-label="Termination date"
                         value={dateInputValue(row.termination_date)}
-                        onChange={(e) =>
-                          patch(index, { termination_date: e.target.value || null })
-                        }
+                        onChange={(e) => patch(index, { termination_date: e.target.value || null })}
                       />
                     </div>
                   </td>
@@ -476,9 +480,7 @@ export function HwLicenseTable({ rows, years, meta, catalog, onChange }: HwLicen
                         type="date"
                         aria-label="Expiration date"
                         value={dateInputValue(row.expiration_date)}
-                        onChange={(e) =>
-                          patch(index, { expiration_date: e.target.value || null })
-                        }
+                        onChange={(e) => patch(index, { expiration_date: e.target.value || null })}
                       />
                     </div>
                   </td>
@@ -625,10 +627,9 @@ export function HwLicenseTable({ rows, years, meta, catalog, onChange }: HwLicen
           </span>
         </Button>
         <p className="max-w-xl text-right text-xs text-slate-500">
-          Yearly cost runs from the purchase date to the termination date — a lease spreads
-          over {meta.leasing_months} months, a purchase lands whole in its purchase year. The
-          expiration date drives renewal risk only. Planned purchases are shown muted and
-          totalled separately.
+          Yearly cost runs from the purchase date to the termination date — a lease spreads over{' '}
+          {meta.leasing_months} months, a purchase lands whole in its purchase year. The expiration
+          date drives renewal risk only. Planned purchases are shown muted and totalled separately.
         </p>
       </div>
 

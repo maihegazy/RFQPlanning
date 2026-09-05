@@ -35,11 +35,17 @@ export default function PortfolioPage() {
 
   useEffect(() => {
     setCapacity(null)
-    api.getPortfolioCapacity(statuses).then(setCapacity).catch((e) => setError(e.message))
+    api
+      .getPortfolioCapacity(statuses)
+      .then(setCapacity)
+      .catch((e) => setError(e.message))
   }, [statuses])
 
   useEffect(() => {
-    api.listProjects().then(setProjects).catch((e) => setError(e.message))
+    api
+      .listProjects()
+      .then(setProjects)
+      .catch((e) => setError(e.message))
   }, [])
 
   const computeMoney = useCallback(async () => {
@@ -134,8 +140,8 @@ export default function PortfolioPage() {
       {vault.status !== 'unlocked' ? (
         <div className="mb-6">
           <VaultPrompt>
-            Pipeline value, weighted revenue and margins require unlocked financial data.
-            The capacity heatmap below works without unlocking.
+            Pipeline value, weighted revenue and margins require unlocked financial data. The
+            capacity heatmap below works without unlocking.
           </VaultPrompt>
         </div>
       ) : (
@@ -196,13 +202,22 @@ export default function PortfolioPage() {
                         </Link>
                       </td>
                       <td className="py-2 pr-4 text-slate-400">{r.summary.company}</td>
-                      <td className="py-2 pr-4"><StatusBadge status={r.summary.status} /></td>
+                      <td className="py-2 pr-4">
+                        <StatusBadge status={r.summary.status} />
+                      </td>
                       <td className="py-2 pr-4 text-right">
-                        {r.summary.status === 'won' ? '100' : r.summary.status === 'lost' ? '0' : r.summary.win_probability_pct}%
+                        {r.summary.status === 'won'
+                          ? '100'
+                          : r.summary.status === 'lost'
+                            ? '0'
+                            : r.summary.win_probability_pct}
+                        %
                       </td>
                       <td className="py-2 pr-4 text-right">{formatEuro(r.revenue)}</td>
                       <td className="py-2 pr-4 text-right">{formatEuro(r.cost)}</td>
-                      <td className={`py-2 pr-4 text-right ${r.marginPct < 0 ? 'text-rose-400' : ''}`}>
+                      <td
+                        className={`py-2 pr-4 text-right ${r.marginPct < 0 ? 'text-rose-400' : ''}`}
+                      >
                         {formatNumber(r.marginPct)}%
                       </td>
                       <td className="py-2 text-right">{formatEuro(r.weighted)}</td>
@@ -215,7 +230,9 @@ export default function PortfolioPage() {
         </Card>
       )}
 
-      <Card title={`Capacity Heatmap — FTE demand per month${capacity ? ` (${capacity.project_count} projects)` : ''}`}>
+      <Card
+        title={`Capacity Heatmap — FTE demand per month${capacity ? ` (${capacity.project_count} projects)` : ''}`}
+      >
         {capacity === null ? (
           <Spinner />
         ) : capacity.months.length === 0 ? (

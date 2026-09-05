@@ -1,6 +1,16 @@
 export const MONTH_NAMES = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
 ]
 
 export function formatMonth(year: number, month: number): string {
@@ -26,9 +36,7 @@ export function monthRange(start: string, end: string): string[] {
 
 export function nextMonth(month: string): string {
   const [year, monthNumber] = month.split('-').map(Number)
-  return monthNumber === 12
-    ? formatMonth(year + 1, 1)
-    : formatMonth(year, monthNumber + 1)
+  return monthNumber === 12 ? formatMonth(year + 1, 1) : formatMonth(year, monthNumber + 1)
 }
 
 export function formatNumber(value: unknown, decimals = 2): string {

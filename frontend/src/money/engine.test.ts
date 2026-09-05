@@ -89,9 +89,7 @@ describe('money engine (golden master vs. original Python implementation)', () =
   const plan = computeBudgetPlan(project, money, rates)
 
   it('cost-profit summary matches', () => {
-    const bcc2026 = plan.cost_profit_summary.find(
-      (r) => r.year === '2026' && r.location === 'BCC',
-    )!
+    const bcc2026 = plan.cost_profit_summary.find((r) => r.year === '2026' && r.location === 'BCC')!
     // Developer 1.0 FTE x 12 months x 160h = 1920h
     expect(bcc2026.man_hours).toBeCloseTo(1920)
     expect(bcc2026.selling_price).toBeCloseTo(1920 * 100.0)
@@ -99,9 +97,7 @@ describe('money engine (golden master vs. original Python implementation)', () =
     expect(bcc2026.profit_pct).toBeCloseTo(50.0)
 
     // Architect: (6*0.5 + 6*1.0) * 160 = 1440h
-    const hcc2026 = plan.cost_profit_summary.find(
-      (r) => r.year === '2026' && r.location === 'HCC',
-    )!
+    const hcc2026 = plan.cost_profit_summary.find((r) => r.year === '2026' && r.location === 'HCC')!
     expect(hcc2026.man_hours).toBeCloseTo(1440)
   })
 
@@ -116,13 +112,9 @@ describe('money engine (golden master vs. original Python implementation)', () =
     const avgRate = (1920 * 100.0 + 1440 * 80.0) / totalHours
     const finalRate = avgRate * 1.1 + 2.0
 
-    const small = plan.ticket_analysis.find(
-      (r) => r.year === '2026' && r.size === 'Small',
-    )!
+    const small = plan.ticket_analysis.find((r) => r.year === '2026' && r.size === 'Small')!
     expect(small.hours_per_ticket).toBeCloseTo(8.0) // 2 SP * 4 h/SP
-    expect(small.num_tickets).toBeCloseTo(
-      Math.round(((totalHours * 0.2) / 8.0) * 100) / 100,
-    )
+    expect(small.num_tickets).toBeCloseTo(Math.round(((totalHours * 0.2) / 8.0) * 100) / 100)
     expect(small.hourly_rate).toBeCloseTo(Math.round(finalRate * 100) / 100)
   })
 
@@ -153,11 +145,7 @@ describe('money engine (golden master vs. original Python implementation)', () =
   })
 
   it('yearly rate escalation compounds from the start year', () => {
-    const escalated = computeBudgetPlan(
-      project,
-      { ...money, rate_escalation_pct: 10 },
-      rates,
-    )
+    const escalated = computeBudgetPlan(project, { ...money, rate_escalation_pct: 10 }, rates)
     const y2026 = escalated.cost_profit_overall.find((r) => r.year === '2026')!
     const y2027 = escalated.cost_profit_overall.find((r) => r.year === '2027')!
     // Year 1 unchanged; year 2 rates are exactly 1.1x
@@ -173,11 +161,35 @@ describe('money engine (golden master vs. original Python implementation)', () =
         ...money,
         cost_items: [
           // one-time inside the project
-          { name: 'HIL bench', category: 'hardware', amount: 50000, is_recurring: false, start_month: '2026-03', end_month: null, pass_through: false },
+          {
+            name: 'HIL bench',
+            category: 'hardware',
+            amount: 50000,
+            is_recurring: false,
+            start_month: '2026-03',
+            end_month: null,
+            pass_through: false,
+          },
           // one-time OUTSIDE the project range -> ignored
-          { name: 'Stale', category: 'other', amount: 99999, is_recurring: false, start_month: '2030-01', end_month: null, pass_through: false },
+          {
+            name: 'Stale',
+            category: 'other',
+            amount: 99999,
+            is_recurring: false,
+            start_month: '2030-01',
+            end_month: null,
+            pass_through: false,
+          },
           // recurring license clipped to 2027 (Jan-Jun = 6 months)
-          { name: 'Tool license', category: 'license', amount: 1000, is_recurring: true, start_month: '2027-01', end_month: '2027-12', pass_through: true },
+          {
+            name: 'Tool license',
+            category: 'license',
+            amount: 1000,
+            is_recurring: true,
+            start_month: '2027-01',
+            end_month: '2027-12',
+            pass_through: true,
+          },
         ],
       },
       rates,

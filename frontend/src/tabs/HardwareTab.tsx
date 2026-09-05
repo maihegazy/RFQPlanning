@@ -38,13 +38,7 @@ function rowYearCosts(row: HardwareItemInput, startYear: number): Record<number,
   return costs
 }
 
-export default function HardwareTab({
-  project,
-  meta,
-}: {
-  project: Project
-  meta: Meta
-}) {
+export default function HardwareTab({ project, meta }: { project: Project; meta: Meta }) {
   const years = projectYears(project.start_year, project.end_year)
   const [rows, setRows] = useState<EditRow[] | null>(null)
   const [deletedIds, setDeletedIds] = useState<number[]>([])
@@ -81,7 +75,10 @@ export default function HardwareTab({
   }, [project.id])
 
   const reloadCatalog = useCallback(() => {
-    api.listHardwareCatalog().then(setCatalog).catch(() => setCatalog([]))
+    api
+      .listHardwareCatalog()
+      .then(setCatalog)
+      .catch(() => setCatalog([]))
   }, [])
 
   useEffect(() => {
@@ -90,9 +87,9 @@ export default function HardwareTab({
   }, [reload, reloadCatalog])
 
   const updateRow = (key: number, patch: Partial<EditRow>) => {
-    setRows((prev) =>
-      prev?.map((row) => (row.key === key ? { ...row, ...patch, dirty: true } : row)) ??
-      prev,
+    setRows(
+      (prev) =>
+        prev?.map((row) => (row.key === key ? { ...row, ...patch, dirty: true } : row)) ?? prev,
     )
   }
 
@@ -156,8 +153,7 @@ export default function HardwareTab({
     setRows((prev) => prev?.filter((r) => r.key !== row.key) ?? prev)
   }
 
-  const hasChanges =
-    deletedIds.length > 0 || (rows?.some((row) => row.dirty) ?? false)
+  const hasChanges = deletedIds.length > 0 || (rows?.some((row) => row.dirty) ?? false)
 
   const save = async () => {
     if (!rows) return
@@ -249,7 +245,7 @@ export default function HardwareTab({
                   if (e.target.value) addFromCatalog(Number(e.target.value))
                 }}
               >
-              <option value="">+ Add from catalog…</option>
+                <option value="">+ Add from catalog…</option>
                 <option value="">+ Add from catalog…</option>
                 {catalogBySupplier.map(([supplier, supplierItems]) => (
                   <optgroup key={supplier} label={supplier}>
@@ -292,9 +288,9 @@ export default function HardwareTab({
           </div>
         )}
         <p className="mb-4 text-sm text-slate-400">
-          Plan the hardware and tools this quotation needs. Yearly items are paid
-          for every selected year; one-time purchases land in their single
-          purchase year. Alternatives can be captured with quantity 0.
+          Plan the hardware and tools this quotation needs. Yearly items are paid for every selected
+          year; one-time purchases land in their single purchase year. Alternatives can be captured
+          with quantity 0.
         </p>
 
         {rows.length === 0 ? (
@@ -377,9 +373,7 @@ export default function HardwareTab({
                         step="0.01"
                         className="w-28 text-right"
                         value={row.unit_cost}
-                        onChange={(e) =>
-                          updateRow(row.key, { unit_cost: Number(e.target.value) })
-                        }
+                        onChange={(e) => updateRow(row.key, { unit_cost: Number(e.target.value) })}
                       />
                     </td>
                     <td className="py-2 pr-2">
@@ -439,9 +433,7 @@ export default function HardwareTab({
                             className="min-w-36"
                             value={row.supplier_name}
                             placeholder="Supplier"
-                            onChange={(e) =>
-                              updateRow(row.key, { supplier_name: e.target.value })
-                            }
+                            onChange={(e) => updateRow(row.key, { supplier_name: e.target.value })}
                           />
                           <span className="mt-1 block text-xs text-slate-500">
                             contact from catalog

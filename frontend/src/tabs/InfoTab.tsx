@@ -4,13 +4,7 @@ import type { Project, ValidationResult } from '../types'
 import { Button, Card, ErrorBanner, Input, Label, Select } from '../components/ui'
 import { MONTH_NAMES } from '../utils'
 
-export default function InfoTab({
-  project,
-  onSaved,
-}: {
-  project: Project
-  onSaved: () => void
-}) {
+export default function InfoTab({ project, onSaved }: { project: Project; onSaved: () => void }) {
   const [name, setName] = useState(project.name)
   const [company, setCompany] = useState(project.company)
   const [startYear, setStartYear] = useState(project.start_year)
@@ -92,7 +86,9 @@ export default function InfoTab({
               <div className="flex gap-2">
                 <Select value={startMonth} onChange={(e) => setStartMonth(Number(e.target.value))}>
                   {MONTH_NAMES.map((m, i) => (
-                    <option key={m} value={i + 1}>{m}</option>
+                    <option key={m} value={i + 1}>
+                      {m}
+                    </option>
                   ))}
                 </Select>
                 <Input
@@ -108,7 +104,9 @@ export default function InfoTab({
               <div className="flex gap-2">
                 <Select value={endMonth} onChange={(e) => setEndMonth(Number(e.target.value))}>
                   {MONTH_NAMES.map((m, i) => (
-                    <option key={m} value={i + 1}>{m}</option>
+                    <option key={m} value={i + 1}>
+                      {m}
+                    </option>
                   ))}
                 </Select>
                 <Input
@@ -125,7 +123,9 @@ export default function InfoTab({
               <Label>RFQ Status</Label>
               <Select value={status} onChange={(e) => setStatus(e.target.value)}>
                 {['draft', 'quoted', 'won', 'lost'].map((s) => (
-                  <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+                  <option key={s} value={s}>
+                    {s.charAt(0).toUpperCase() + s.slice(1)}
+                  </option>
                 ))}
               </Select>
             </div>
@@ -164,12 +164,16 @@ export default function InfoTab({
 
       <Card
         title="Project Validation"
-        actions={<Button variant="secondary" onClick={validate}>Run Validation</Button>}
+        actions={
+          <Button variant="secondary" onClick={validate}>
+            Run Validation
+          </Button>
+        }
       >
         {validation === null ? (
           <p className="text-sm text-slate-500">
-            Run validation to check the project is complete and consistent before
-            generating reports.
+            Run validation to check the project is complete and consistent before generating
+            reports.
           </p>
         ) : validation.valid ? (
           <div className="rounded-lg border border-emerald-800 bg-emerald-950/50 px-4 py-3 text-sm text-emerald-300">

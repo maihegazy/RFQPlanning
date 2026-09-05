@@ -49,10 +49,19 @@ const GROUPS: NavGroup[] = [
       {
         to: '/hardware',
         label: 'Overview',
-        active: (p) => p === '/hardware' || (p.startsWith('/hardware/') && p !== '/hardware/process'),
+        active: (p) =>
+          p === '/hardware' || (p.startsWith('/hardware/') && p !== '/hardware/process'),
       },
-      { to: '/hardware-catalog', label: 'Catalog', active: (p) => p.startsWith('/hardware-catalog') },
-      { to: '/hardware/process', label: 'Ordering Process', active: (p) => p === '/hardware/process' },
+      {
+        to: '/hardware-catalog',
+        label: 'Catalog',
+        active: (p) => p.startsWith('/hardware-catalog'),
+      },
+      {
+        to: '/hardware/process',
+        label: 'Ordering Process',
+        active: (p) => p === '/hardware/process',
+      },
     ],
   },
 ]
@@ -126,14 +135,18 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
                 >
                   <Icon
                     className={`h-4.5 w-4.5 shrink-0 ${
-                      isActiveGroup ? 'text-[var(--sidebar-accent)]' : 'text-[var(--sidebar-idle-icon)]'
+                      isActiveGroup
+                        ? 'text-[var(--sidebar-accent)]'
+                        : 'text-[var(--sidebar-idle-icon)]'
                     }`}
                     strokeWidth={1.75}
                   />
                   <span className="flex-1 text-left">{label}</span>
                   <Chevron
                     className={`h-4 w-4 shrink-0 ${
-                      isActiveGroup ? 'text-[var(--sidebar-accent)]' : 'text-[var(--sidebar-idle-icon)]'
+                      isActiveGroup
+                        ? 'text-[var(--sidebar-accent)]'
+                        : 'text-[var(--sidebar-idle-icon)]'
                     }`}
                     strokeWidth={2}
                   />

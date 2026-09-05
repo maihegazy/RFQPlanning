@@ -125,8 +125,7 @@ export default function ResourceGrid({
   if (!hasRoles) {
     return (
       <EmptyState>
-        Add features and roles first (switch to List view), then edit their monthly
-        FTEs here.
+        Add features and roles first (switch to List view), then edit their monthly FTEs here.
       </EmptyState>
     )
   }
@@ -137,9 +136,9 @@ export default function ResourceGrid({
 
       <div className="flex items-center justify-between">
         <p className="text-xs text-slate-500">
-          Edit FTE values per month like a spreadsheet. Use the ⇥ fill button to apply
-          a row's first value to all months. Changed cells are highlighted; saving
-          converts each row into a fixed FTE or variable periods automatically.
+          Edit FTE values per month like a spreadsheet. Use the ⇥ fill button to apply a row's first
+          value to all months. Changed cells are highlighted; saving converts each row into a fixed
+          FTE or variable periods automatically.
         </p>
         <div className="flex shrink-0 gap-2">
           <Button variant="secondary" onClick={reset} disabled={dirtyRoles.size === 0}>
@@ -174,10 +173,7 @@ export default function ResourceGrid({
                   {year}
                 </th>
               ))}
-              <th
-                rowSpan={2}
-                className="border-b border-l border-slate-700 px-3 py-2 text-right"
-              >
+              <th rowSpan={2} className="border-b border-l border-slate-700 px-3 py-2 text-right">
                 Total
                 <div className="font-normal text-slate-500">FTE-months</div>
               </th>
@@ -277,7 +273,9 @@ function FeatureRows({
                   {role.location} · {role.level}
                 </span>
                 {dirtyRoles.has(role.id) && (
-                  <span className="ml-2 text-amber-400" title="Unsaved changes">●</span>
+                  <span className="ml-2 text-amber-400" title="Unsaved changes">
+                    ●
+                  </span>
                 )}
               </span>
             </div>

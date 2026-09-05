@@ -100,7 +100,12 @@ export const ORDERING_PROCESS: ProcessPhase[] = [
           'Check the guideline hardware sheet for contact persons and prices. Next, request quotations and proceed with supplier selection according to specific criteria.',
         link: { to: '/hardware-catalog', label: 'Hardware catalog' },
       },
-      { id: 'quotation', kind: 'action', label: 'Supplier quotation request', owner: 'Project lead' },
+      {
+        id: 'quotation',
+        kind: 'action',
+        label: 'Supplier quotation request',
+        owner: 'Project lead',
+      },
       { id: 'selection', kind: 'action', label: 'Supplier selection', owner: 'Project lead' },
       {
         id: 'order-email',

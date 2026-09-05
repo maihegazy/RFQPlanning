@@ -280,7 +280,10 @@ export function HwAssetTable({ rows, years, meta, catalog, onChange }: HwAssetTa
     })
     const sumYear = (index: number, planned: boolean) =>
       round2(
-        perRow.reduce((sum, entry) => (entry.planned === planned ? sum + entry.cells[index] : sum), 0),
+        perRow.reduce(
+          (sum, entry) => (entry.planned === planned ? sum + entry.cells[index] : sum),
+          0,
+        ),
       )
     const sumTotal = (planned: boolean) =>
       round2(
@@ -374,7 +377,10 @@ export function HwAssetTable({ rows, years, meta, catalog, onChange }: HwAssetTa
             {rows.map((row, index) => {
               const computed = totals.perRow[index]
               return (
-                <tr key={index} className="border-b border-slate-800 align-top hover:bg-slate-800/30">
+                <tr
+                  key={index}
+                  className="border-b border-slate-800 align-top hover:bg-slate-800/30"
+                >
                   <td className={`py-2 pr-2 ${PINNED_LEFT}`}>
                     <div className="w-52">
                       <Input
@@ -457,9 +463,7 @@ export function HwAssetTable({ rows, years, meta, catalog, onChange }: HwAssetTa
                         aria-label="Purchase cost"
                         className="text-right"
                         value={row.purchase_cost}
-                        onChange={(e) =>
-                          patch(index, { purchase_cost: Number(e.target.value) })
-                        }
+                        onChange={(e) => patch(index, { purchase_cost: Number(e.target.value) })}
                       />
                     </div>
                   </td>
@@ -576,9 +580,9 @@ export function HwAssetTable({ rows, years, meta, catalog, onChange }: HwAssetTa
           </span>
         </Button>
         <p className="max-w-xl text-right text-xs text-slate-500">
-          Yearly cost follows the working document: a purchase lands whole in its purchase
-          year, a lease spreads over {meta.leasing_months} months. Planned purchases are shown
-          muted and totalled separately — they are not committed spend.
+          Yearly cost follows the working document: a purchase lands whole in its purchase year, a
+          lease spreads over {meta.leasing_months} months. Planned purchases are shown muted and
+          totalled separately — they are not committed spend.
         </p>
       </div>
 

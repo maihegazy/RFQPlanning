@@ -11,13 +11,7 @@ import HardwareTab from '../tabs/HardwareTab'
 import ReportsTab from '../tabs/ReportsTab'
 import CompareTab from '../tabs/CompareTab'
 
-function SaveTemplateModal({
-  project,
-  onClose,
-}: {
-  project: Project
-  onClose: () => void
-}) {
+function SaveTemplateModal({ project, onClose }: { project: Project; onClose: () => void }) {
   const [name, setName] = useState(`${project.name} Template`)
   const [description, setDescription] = useState('')
   const [error, setError] = useState('')
@@ -55,9 +49,9 @@ function SaveTemplateModal({
           <p className="text-sm text-slate-400">
             Snapshots this project's structure — {featureCount} feature
             {featureCount === 1 ? '' : 's'} with {roleCount} role
-            {roleCount === 1 ? '' : 's'} — as a reusable template. Roles with variable
-            FTE periods are saved with their average FTE. Financial data and the timeline
-            are not part of a template.
+            {roleCount === 1 ? '' : 's'} — as a reusable template. Roles with variable FTE periods
+            are saved with their average FTE. Financial data and the timeline are not part of a
+            template.
           </p>
           {error && <ErrorBanner message={error} />}
           <div>
@@ -73,7 +67,9 @@ function SaveTemplateModal({
             />
           </div>
           <div className="flex justify-end gap-2">
-            <Button variant="secondary" onClick={onClose}>Cancel</Button>
+            <Button variant="secondary" onClick={onClose}>
+              Cancel
+            </Button>
             <Button onClick={save} disabled={saving || !name.trim() || featureCount === 0}>
               {saving ? 'Saving…' : 'Save Template'}
             </Button>
@@ -109,13 +105,22 @@ export default function ProjectPage() {
   const [showSaveTemplate, setShowSaveTemplate] = useState(false)
 
   const reload = useCallback(() => {
-    api.getProject(id).then(setProject).catch((e) => setError(e.message))
-    api.listScenarios(id).then(setFamily).catch(() => setFamily([]))
+    api
+      .getProject(id)
+      .then(setProject)
+      .catch((e) => setError(e.message))
+    api
+      .listScenarios(id)
+      .then(setFamily)
+      .catch(() => setFamily([]))
   }, [id])
 
   useEffect(() => {
     reload()
-    api.getMeta().then(setMeta).catch((e) => setError(e.message))
+    api
+      .getMeta()
+      .then(setMeta)
+      .catch((e) => setError(e.message))
   }, [reload])
 
   const newScenario = async () => {

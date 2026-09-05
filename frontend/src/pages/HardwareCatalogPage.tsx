@@ -17,9 +17,7 @@ export default function HardwareCatalogPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Hardware Catalog</h1>
-            <p className="text-sm text-slate-400">
-              Shared vendor catalog of hardware and tools
-            </p>
+            <p className="text-sm text-slate-400">Shared vendor catalog of hardware and tools</p>
           </div>
         </div>
         <Link to="/" className="text-sm text-slate-400 hover:text-indigo-400">

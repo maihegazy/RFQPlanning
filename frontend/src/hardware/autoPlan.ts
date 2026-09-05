@@ -6,12 +6,7 @@
  * produces is an ordinary hardware row, so the result stays fully editable.
  */
 
-import type {
-  HardwareCatalogItem,
-  HardwareItemInput,
-  Project,
-  Role,
-} from '../types'
+import type { HardwareCatalogItem, HardwareItemInput, Project, Role } from '../types'
 import { monthRange, formatMonth } from '../utils'
 
 /** Roles that lead the project rather than occupying a bench. */

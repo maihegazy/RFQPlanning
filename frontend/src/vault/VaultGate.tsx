@@ -92,8 +92,8 @@ export function ChangePassphraseDialog({ onClose }: { onClose: () => void }) {
       {done ? (
         <div className="space-y-4">
           <div className="rounded-lg border border-emerald-800 bg-emerald-950/50 px-4 py-3 text-sm text-emerald-300">
-            ✓ Passphrase changed. Everyone who uses this vault needs the new one from
-            now on. Your existing recovery key file still works — it is unchanged.
+            ✓ Passphrase changed. Everyone who uses this vault needs the new one from now on. Your
+            existing recovery key file still works — it is unchanged.
           </div>
           <div className="flex justify-end">
             <Button onClick={onClose}>Done</Button>
@@ -102,9 +102,9 @@ export function ChangePassphraseDialog({ onClose }: { onClose: () => void }) {
       ) : (
         <div className="space-y-4">
           <p className="text-sm leading-relaxed text-slate-400">
-            Only the key is re-wrapped — no project data is re-encrypted, so this is
-            instant however many projects you have. There is one shared vault, so the
-            new passphrase applies to everyone who unlocks financial data.
+            Only the key is re-wrapped — no project data is re-encrypted, so this is instant however
+            many projects you have. There is one shared vault, so the new passphrase applies to
+            everyone who unlocks financial data.
           </p>
           {error && <ErrorBanner message={error} />}
 
@@ -161,11 +161,7 @@ export function ChangePassphraseDialog({ onClose }: { onClose: () => void }) {
           </div>
           <div>
             <Label>Confirm new passphrase</Label>
-            <Input
-              type="password"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-            />
+            <Input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
           </div>
 
           <div className="flex justify-end gap-2">
@@ -191,8 +187,7 @@ export function VaultPrompt({ children }: { children?: ReactNode }) {
     <div className="rounded-lg border border-dashed border-amber-800/60 bg-amber-950/20 px-6 py-8 text-center">
       <p className="text-2xl">🔒</p>
       <p className="mt-2 text-sm text-amber-200">
-        {children ??
-          'Financial data is end-to-end encrypted. Unlock it to view and edit it.'}
+        {children ?? 'Financial data is end-to-end encrypted. Unlock it to view and edit it.'}
       </p>
       <div className="mt-4">
         <Button onClick={() => setShowDialog(true)}>
@@ -223,13 +218,7 @@ export function VaultDialog({
   return null
 }
 
-function SetupWizard({
-  onClose,
-  onUnlocked,
-}: {
-  onClose: () => void
-  onUnlocked?: () => void
-}) {
+function SetupWizard({ onClose, onUnlocked }: { onClose: () => void; onUnlocked?: () => void }) {
   const { setup } = useVault()
   const [passphrase, setPassphrase] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -259,10 +248,7 @@ function SetupWizard({
 
   const downloadRecovery = () => {
     if (!recoveryContent) return
-    downloadBlob(
-      new Blob([recoveryContent], { type: 'application/json' }),
-      'rfq-recovery-key.json',
-    )
+    downloadBlob(new Blob([recoveryContent], { type: 'application/json' }), 'rfq-recovery-key.json')
     setDownloaded(true)
   }
 
@@ -271,10 +257,9 @@ function SetupWizard({
       {recoveryContent === null ? (
         <div className="space-y-4">
           <p className="text-sm leading-relaxed text-slate-400">
-            Financial data (rates, costs, prices) is encrypted <em>in your browser</em> with
-            a key derived from this passphrase. Nobody with access to the database or
-            server can read it — including administrators. The passphrase never leaves
-            this device.
+            Financial data (rates, costs, prices) is encrypted <em>in your browser</em> with a key
+            derived from this passphrase. Nobody with access to the database or server can read it —
+            including administrators. The passphrase never leaves this device.
           </p>
           {error && <ErrorBanner message={error} />}
           <div>
@@ -291,7 +276,9 @@ function SetupWizard({
             <Input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
           </div>
           <div className="flex justify-end gap-2">
-            <Button variant="secondary" onClick={onClose}>Cancel</Button>
+            <Button variant="secondary" onClick={onClose}>
+              Cancel
+            </Button>
             <Button onClick={create} disabled={busy}>
               {busy ? 'Creating…' : 'Create Vault'}
             </Button>
@@ -300,9 +287,9 @@ function SetupWizard({
       ) : (
         <div className="space-y-4">
           <div className="rounded-lg border border-rose-800 bg-rose-950/50 px-4 py-3 text-sm text-rose-200">
-            <strong>Download your recovery key now.</strong> It is shown only once. If
-            you forget the passphrase AND lose this file, your financial data is
-            unrecoverable — by design, nobody else can decrypt it.
+            <strong>Download your recovery key now.</strong> It is shown only once. If you forget
+            the passphrase AND lose this file, your financial data is unrecoverable — by design,
+            nobody else can decrypt it.
           </div>
           <Button onClick={downloadRecovery} className="w-full">
             ⬇ Download rfq-recovery-key.json
@@ -328,13 +315,7 @@ function SetupWizard({
   )
 }
 
-function UnlockDialog({
-  onClose,
-  onUnlocked,
-}: {
-  onClose: () => void
-  onUnlocked?: () => void
-}) {
+function UnlockDialog({ onClose, onUnlocked }: { onClose: () => void; onUnlocked?: () => void }) {
   const { unlock, unlockWithFile } = useVault()
   const [passphrase, setPassphrase] = useState('')
   const [error, setError] = useState('')
@@ -402,7 +383,9 @@ function UnlockDialog({
             Use recovery key file…
           </Button>
           <div className="flex gap-2">
-            <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+            <Button type="button" variant="secondary" onClick={onClose}>
+              Cancel
+            </Button>
             <Button type="submit" disabled={busy || !passphrase}>
               {busy ? 'Unlocking…' : 'Unlock'}
             </Button>

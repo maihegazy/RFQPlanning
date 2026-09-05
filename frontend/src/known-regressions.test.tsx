@@ -103,9 +103,7 @@ describe('known frontend regressions', () => {
       level: 'Senior',
       ftes: 0,
       use_advanced_allocation: true,
-      allocations: [
-        { id: 30, start_month: '2026-01', end_month: '2026-03', ftes: 0.5 },
-      ],
+      allocations: [{ id: 30, start_month: '2026-01', end_month: '2026-03', ftes: 0.5 }],
     }
 
     let renderer!: ReactTestRenderer
@@ -141,9 +139,7 @@ describe('known frontend regressions', () => {
     let renderer!: ReactTestRenderer
     await act(async () => {
       renderer = create(
-        <MemoryRouter
-          future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-        >
+        <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <ProjectsPage />
         </MemoryRouter>,
       )
@@ -156,13 +152,14 @@ describe('known frontend regressions', () => {
     expect(fileInput).toBeDefined()
 
     const legacyFile = {
-      text: async () => JSON.stringify({
-        project_name: 'Imported project',
-        company_name: 'Vehiclevo',
-        dates: ['2026', '1', '2026', '12'],
-        features: [],
-        rate_config: { hourly_rates: { BCC: 100 } },
-      }),
+      text: async () =>
+        JSON.stringify({
+          project_name: 'Imported project',
+          company_name: 'Vehiclevo',
+          dates: ['2026', '1', '2026', '12'],
+          features: [],
+          rate_config: { hourly_rates: { BCC: 100 } },
+        }),
     }
     const event = { target: { files: [legacyFile], value: 'legacy.json' } }
 

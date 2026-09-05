@@ -73,11 +73,7 @@ export function parseIsoDate(value: string | null): Date | null {
   const date = new Date(year, month - 1, day)
   // Out-of-range parts roll over silently (Feb 30th becomes March 2nd), and
   // years under 100 are remapped into the 1900s. Reject rather than drift.
-  if (
-    date.getFullYear() !== year ||
-    date.getMonth() !== month - 1 ||
-    date.getDate() !== day
-  ) {
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
     return null
   }
   return date

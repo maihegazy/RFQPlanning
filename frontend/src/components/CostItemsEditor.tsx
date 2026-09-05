@@ -42,12 +42,15 @@ export default function CostItemsEditor({
     <div className="space-y-3">
       {items.length === 0 && (
         <p className="text-sm text-slate-500">
-          Non-labor costs — tool licenses, test benches, travel — added to project cost.
-          Mark an item "billed" to also charge it to the customer.
+          Non-labor costs — tool licenses, test benches, travel — added to project cost. Mark an
+          item "billed" to also charge it to the customer.
         </p>
       )}
       {items.map((item, i) => (
-        <div key={i} className="flex flex-wrap items-end gap-2 rounded-lg border border-slate-800 p-3">
+        <div
+          key={i}
+          className="flex flex-wrap items-end gap-2 rounded-lg border border-slate-800 p-3"
+        >
           <div className="min-w-40 flex-1">
             <Label>Name</Label>
             <Input
@@ -64,7 +67,9 @@ export default function CostItemsEditor({
               className="w-28"
             >
               {COST_CATEGORIES.map((c) => (
-                <option key={c} value={c}>{c}</option>
+                <option key={c} value={c}>
+                  {c}
+                </option>
               ))}
             </Select>
           </div>
@@ -128,10 +133,14 @@ export default function CostItemsEditor({
             />
             billed to customer
           </label>
-          <Button variant="ghost" onClick={() => remove(i)}>✕</Button>
+          <Button variant="ghost" onClick={() => remove(i)}>
+            ✕
+          </Button>
         </div>
       ))}
-      <Button variant="secondary" onClick={add}>+ Add Cost Item</Button>
+      <Button variant="secondary" onClick={add}>
+        + Add Cost Item
+      </Button>
     </div>
   )
 }

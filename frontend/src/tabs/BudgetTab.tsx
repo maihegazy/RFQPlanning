@@ -18,7 +18,10 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
-    api.getRates(project.id).then(setRates).catch((e) => setError(e.message))
+    api
+      .getRates(project.id)
+      .then(setRates)
+      .catch((e) => setError(e.message))
   }, [project.id])
 
   const loadMoney = useCallback(async () => {
@@ -142,17 +145,16 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
 
       {legacyBanner && (
         <div className="rounded-lg border border-indigo-800 bg-indigo-950/50 px-4 py-3 text-sm text-indigo-200">
-          Unencrypted financial values from an earlier version were found for this project.
-          They are loaded below — click <strong>Save</strong> to encrypt them and remove
-          the plaintext from the database.
+          Unencrypted financial values from an earlier version were found for this project. They are
+          loaded below — click <strong>Save</strong> to encrypt them and remove the plaintext from
+          the database.
         </div>
       )}
 
       {moneyLocked ? (
         <VaultPrompt>
-          Hourly rates, cost rates and ticket prices are end-to-end encrypted.
-          Unlock the vault to view and edit them. Non-financial settings below remain
-          editable.
+          Hourly rates, cost rates and ticket prices are end-to-end encrypted. Unlock the vault to
+          view and edit them. Non-financial settings below remain editable.
         </VaultPrompt>
       ) : money === null ? (
         <Spinner />
@@ -225,7 +227,9 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
                 <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
                   <th className="pb-2 pr-4">Location</th>
                   {meta.levels.map((lvl) => (
-                    <th key={lvl} className="pb-2 pr-3">{lvl}</th>
+                    <th key={lvl} className="pb-2 pr-3">
+                      {lvl}
+                    </th>
                   ))}
                 </tr>
               </thead>
@@ -263,7 +267,11 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
           <CostItemsEditor
             project={project}
             items={money.cost_items}
-            onChange={(items) => editMoney((m) => { m.cost_items = items })}
+            onChange={(items) =>
+              editMoney((m) => {
+                m.cost_items = items
+              })
+            }
           />
         </Card>
       )}
@@ -277,7 +285,11 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
               min={0}
               step={0.5}
               value={rates.sp_to_hours}
-              onChange={(e) => editRates((r) => { r.sp_to_hours = Number(e.target.value) })}
+              onChange={(e) =>
+                editRates((r) => {
+                  r.sp_to_hours = Number(e.target.value)
+                })
+              }
             />
           </div>
           <div>
@@ -287,7 +299,11 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
               min={0}
               step={0.5}
               value={rates.risk_factor_pct}
-              onChange={(e) => editRates((r) => { r.risk_factor_pct = Number(e.target.value) })}
+              onChange={(e) =>
+                editRates((r) => {
+                  r.risk_factor_pct = Number(e.target.value)
+                })
+              }
             />
           </div>
         </div>
@@ -302,7 +318,9 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
                 <th className="pb-2 pr-4">Story Points</th>
                 <th className="pb-2 pr-4">Price (€) 🔐</th>
                 {years.map((y) => (
-                  <th key={y} className="pb-2 pr-4">Quota {y} (%)</th>
+                  <th key={y} className="pb-2 pr-4">
+                    Quota {y} (%)
+                  </th>
                 ))}
               </tr>
             </thead>
@@ -318,7 +336,9 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
                       className="w-24"
                       value={rates.ticket_story_points[size] ?? 0}
                       onChange={(e) =>
-                        editRates((r) => { r.ticket_story_points[size] = Number(e.target.value) })
+                        editRates((r) => {
+                          r.ticket_story_points[size] = Number(e.target.value)
+                        })
                       }
                     />
                   </td>
@@ -333,7 +353,9 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
                         className="w-24"
                         value={money.ticket_prices[size] ?? 0}
                         onChange={(e) =>
-                          editMoney((m) => { m.ticket_prices[size] = Number(e.target.value) })
+                          editMoney((m) => {
+                            m.ticket_prices[size] = Number(e.target.value)
+                          })
                         }
                       />
                     )}
@@ -346,7 +368,9 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
                         max={100}
                         step={1}
                         className={`w-24 ${
-                          quotaTotal(y) > 100 ? 'border-rose-600 focus:border-rose-500 focus:ring-rose-500' : ''
+                          quotaTotal(y) > 100
+                            ? 'border-rose-600 focus:border-rose-500 focus:ring-rose-500'
+                            : ''
                         }`}
                         value={quotaFor(y, size)}
                         onChange={(e) =>
@@ -373,9 +397,7 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
                   return (
                     <td
                       key={y}
-                      className={`py-2 pr-4 ${
-                        total > 100 ? 'text-rose-400' : 'text-slate-300'
-                      }`}
+                      className={`py-2 pr-4 ${total > 100 ? 'text-rose-400' : 'text-slate-300'}`}
                     >
                       {total}%{total > 100 && ' ⚠'}
                     </td>
@@ -393,8 +415,8 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
           </div>
         )}
         <p className="mt-3 text-xs text-slate-500">
-          Quota = percentage of the year's total man-hours expected to be delivered as
-          tickets of this size. Fields marked 🔐 are end-to-end encrypted.
+          Quota = percentage of the year's total man-hours expected to be delivered as tickets of
+          this size. Fields marked 🔐 are end-to-end encrypted.
         </p>
       </Card>
 
@@ -402,7 +424,11 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
         <Button onClick={save} disabled={saving || quotaErrors.length > 0}>
           {saving ? 'Saving…' : 'Save Budget Configuration'}
         </Button>
-        {saved && <span className="text-sm text-emerald-400">Saved ✓ {money ? '(financial data encrypted)' : ''}</span>}
+        {saved && (
+          <span className="text-sm text-emerald-400">
+            Saved ✓ {money ? '(financial data encrypted)' : ''}
+          </span>
+        )}
       </div>
     </div>
   )

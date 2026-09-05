@@ -137,7 +137,9 @@ export default function RoleModal({
             <Label>Location</Label>
             <Select value={location} onChange={(e) => setLocation(e.target.value)}>
               {meta.locations.map((loc) => (
-                <option key={loc} value={loc}>{loc}</option>
+                <option key={loc} value={loc}>
+                  {loc}
+                </option>
               ))}
             </Select>
           </div>
@@ -145,7 +147,9 @@ export default function RoleModal({
             <Label>Level</Label>
             <Select value={level} onChange={(e) => setLevel(e.target.value)}>
               {meta.levels.map((lvl) => (
-                <option key={lvl} value={lvl}>{lvl}</option>
+                <option key={lvl} value={lvl}>
+                  {lvl}
+                </option>
               ))}
             </Select>
           </div>
@@ -243,13 +247,16 @@ export default function RoleModal({
           )}
 
           <p className="mt-3 text-xs text-slate-500">
-            Total over project: <span className="text-slate-300">{totalFteMonths.toFixed(1)} FTE-months</span> (
+            Total over project:{' '}
+            <span className="text-slate-300">{totalFteMonths.toFixed(1)} FTE-months</span> (
             {(totalFteMonths * meta.hours_per_fte_per_month).toLocaleString()} man-hours)
           </p>
         </div>
 
         <div className="flex justify-end gap-2 pt-1">
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
           <Button onClick={save} disabled={saving}>
             {saving ? 'Saving…' : role ? 'Save Role' : 'Add Role'}
           </Button>

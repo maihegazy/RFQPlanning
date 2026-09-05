@@ -1,4 +1,12 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react'
 
 export type Theme = 'light' | 'dark'
 
@@ -20,7 +28,10 @@ function initialTheme(): Theme {
   } catch {
     /* storage may be unavailable */
   }
-  if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: light)').matches) {
+  if (
+    typeof window !== 'undefined' &&
+    window.matchMedia?.('(prefers-color-scheme: light)').matches
+  ) {
     return 'light'
   }
   return 'dark'

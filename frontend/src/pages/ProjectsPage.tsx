@@ -2,7 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import type { ProjectSummary, ProjectTemplate } from '../types'
-import { Button, ErrorBanner, EmptyState, Input, Label, Modal, Select, Spinner, StatusBadge } from '../components/ui'
+import {
+  Button,
+  ErrorBanner,
+  EmptyState,
+  Input,
+  Label,
+  Modal,
+  Select,
+  Spinner,
+  StatusBadge,
+} from '../components/ui'
 import { MONTH_NAMES } from '../utils'
 import { downloadBlob } from '../download'
 import { useVault } from '../vault/VaultContext'
@@ -49,7 +59,11 @@ function relativeTime(iso: string): string {
   return months <= 1 ? 'last month' : `${months} months ago`
 }
 
-function Stat({ label, value, tone = 'text-slate-100' }: {
+function Stat({
+  label,
+  value,
+  tone = 'text-slate-100',
+}: {
   label: string
   value: string | number
   tone?: string
@@ -197,7 +211,7 @@ export default function ProjectsPage() {
               location,
               {
                 ...base.cost_rates[location],
-                ...(((rates.cost_rates as Record<string, object> | undefined)?.[location]) ?? {}),
+                ...((rates.cost_rates as Record<string, object> | undefined)?.[location] ?? {}),
               },
             ]),
           ),
@@ -318,9 +332,7 @@ export default function ProjectsPage() {
     const rows = (projects ?? []).filter((p) => {
       if (statusFilter && p.status !== statusFilter) return false
       if (!query) return true
-      return (
-        p.name.toLowerCase().includes(query) || p.company.toLowerCase().includes(query)
-      )
+      return p.name.toLowerCase().includes(query) || p.company.toLowerCase().includes(query)
     })
     return [...rows].sort((a, b) => {
       switch (sortKey) {
@@ -433,7 +445,11 @@ export default function ProjectsPage() {
             {tab.label}
             {/* The count sits on the solid indigo pill, so it stays white-on-accent
                 in both themes rather than following the accent text ramp. */}
-            <span className={statusFilter === tab.key ? 'ml-1.5 text-white/70' : 'ml-1.5 text-slate-500'}>
+            <span
+              className={
+                statusFilter === tab.key ? 'ml-1.5 text-white/70' : 'ml-1.5 text-slate-500'
+              }
+            >
               {counts[tab.key] ?? 0}
             </span>
           </button>
@@ -493,8 +509,8 @@ export default function ProjectsPage() {
             ))}
           </div>
           <p className="mt-4 text-xs text-slate-500">
-            Showing {visible.length} of {projects.length} projects. Scenarios are grouped
-            inside their base project.
+            Showing {visible.length} of {projects.length} projects. Scenarios are grouped inside
+            their base project.
           </p>
         </>
       )}
@@ -589,7 +605,10 @@ function CreateProjectModal({
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    api.listTemplates().then(setTemplates).catch(() => setTemplates([]))
+    api
+      .listTemplates()
+      .then(setTemplates)
+      .catch(() => setTemplates([]))
   }, [])
 
   const submit = async () => {
@@ -618,11 +637,20 @@ function CreateProjectModal({
         {error && <ErrorBanner message={error} />}
         <div>
           <Label>Project name</Label>
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Project" autoFocus />
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Project"
+            autoFocus
+          />
         </div>
         <div>
           <Label>Company</Label>
-          <Input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Company" />
+          <Input
+            value={company}
+            onChange={(e) => setCompany(e.target.value)}
+            placeholder="Company"
+          />
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -630,7 +658,9 @@ function CreateProjectModal({
             <div className="flex gap-2">
               <Select value={startMonth} onChange={(e) => setStartMonth(Number(e.target.value))}>
                 {MONTH_NAMES.map((m, i) => (
-                  <option key={m} value={i + 1}>{m}</option>
+                  <option key={m} value={i + 1}>
+                    {m}
+                  </option>
                 ))}
               </Select>
               <Input
@@ -646,7 +676,9 @@ function CreateProjectModal({
             <div className="flex gap-2">
               <Select value={endMonth} onChange={(e) => setEndMonth(Number(e.target.value))}>
                 {MONTH_NAMES.map((m, i) => (
-                  <option key={m} value={i + 1}>{m}</option>
+                  <option key={m} value={i + 1}>
+                    {m}
+                  </option>
                 ))}
               </Select>
               <Input
@@ -707,7 +739,9 @@ function CreateProjectModal({
           )}
         </div>
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
           <Button onClick={submit} disabled={saving}>
             {saving ? 'Creating…' : 'Create Project'}
           </Button>

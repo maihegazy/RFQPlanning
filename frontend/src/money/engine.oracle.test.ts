@@ -174,8 +174,15 @@ describe('engine vs original desktop implementation (30 randomized fixtures)', (
         const got = summary[i]
         const exp = fx.expected.cost_profit_summary[i]
         expect(`${got.year}|${got.location}`).toBe(`${exp.year}|${exp.location}`)
-        for (const f of ['man_hours', 'cost', 'selling_price', 'hourly_cost',
-                         'hourly_rate', 'profit', 'profit_pct'] as const) {
+        for (const f of [
+          'man_hours',
+          'cost',
+          'selling_price',
+          'hourly_cost',
+          'hourly_rate',
+          'profit',
+          'profit_pct',
+        ] as const) {
           expectClose(got[f], Number(exp[f]), EXACT, `summary[${i}].${f}`)
         }
       }
@@ -187,8 +194,15 @@ describe('engine vs original desktop implementation (30 randomized fixtures)', (
         const got = overall[i]
         const exp = fx.expected.cost_profit_overall[i]
         expect(got.year).toBe(exp.year)
-        for (const f of ['man_hours', 'cost', 'selling_price', 'hourly_cost',
-                         'hourly_rate', 'profit', 'profit_pct'] as const) {
+        for (const f of [
+          'man_hours',
+          'cost',
+          'selling_price',
+          'hourly_cost',
+          'hourly_rate',
+          'profit',
+          'profit_pct',
+        ] as const) {
           expectClose(got[f], Number(exp[f]), EXACT, `overall[${i}].${f}`)
         }
       }

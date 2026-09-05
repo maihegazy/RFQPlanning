@@ -56,9 +56,7 @@ export default function ResourcesTab({
               key={key}
               onClick={() => setView(key)}
               className={`rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors ${
-                view === key
-                  ? 'bg-indigo-600 text-white'
-                  : 'text-slate-400 hover:text-slate-200'
+                view === key ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               {label}

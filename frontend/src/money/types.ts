@@ -23,7 +23,11 @@ export interface MoneyConfig {
   cost_items: CostItem[]
 }
 
-export function emptyMoneyConfig(locations: string[], levels: string[], sizes: string[]): MoneyConfig {
+export function emptyMoneyConfig(
+  locations: string[],
+  levels: string[],
+  sizes: string[],
+): MoneyConfig {
   return {
     version: 1,
     hourly_rates: Object.fromEntries(locations.map((l) => [l, 0])),

@@ -33,8 +33,10 @@ interface VaultContextValue {
   unlockWithFile: (fileContent: string) => Promise<void>
   /** Re-wrap the data key under a new passphrase. Proof of ownership is either
    *  the current passphrase or the recovery file — data is never re-encrypted. */
-  changePassphrase: (proof: { passphrase: string } | { recoveryFile: string },
-                     newPassphrase: string) => Promise<void>
+  changePassphrase: (
+    proof: { passphrase: string } | { recoveryFile: string },
+    newPassphrase: string,
+  ) => Promise<void>
   lock: () => void
   encrypt: (obj: unknown) => Promise<WrappedKey>
   decrypt: <T>(blob: WrappedKey) => Promise<T>
@@ -144,8 +146,14 @@ export function VaultProvider({ children }: { children: ReactNode }) {
       })
       setInfo(await api.getVault())
       // Keep the session open under the new passphrase
-      setDek(await unlockWithPassphrase(newPassphrase, rewrapped.kdfSalt,
-        rewrapped.kdfIterations, rewrapped.wrapped))
+      setDek(
+        await unlockWithPassphrase(
+          newPassphrase,
+          rewrapped.kdfSalt,
+          rewrapped.kdfIterations,
+          rewrapped.wrapped,
+        ),
+      )
     },
     [info],
   )
