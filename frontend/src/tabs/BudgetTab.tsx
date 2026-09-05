@@ -3,7 +3,7 @@ import { api, isConflict } from '../api'
 import type { Meta, Project, RateConfig } from '../types'
 import { Button, Card, ErrorBanner, Input, Label, Spinner } from '../components/ui'
 import { ConflictBanner } from '../components/ConflictBanner'
-import { projectYears } from '../utils'
+import { formatEuro, projectYears } from '../utils'
 import { useVault } from '../vault/VaultContext'
 import { VaultPrompt } from '../vault/VaultGate'
 import { emptyMoneyConfig, normalizeMoneyConfig, type MoneyConfig } from '../money/types'
@@ -312,6 +312,32 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
           />
         </Card>
       )}
+
+      <Card title="Hardware Plan in the Analysis">
+        <p className="text-sm text-slate-400">
+          The Hardware tab's plan is carried into the cost-profit summary as a non-labor row per
+          year.
+          {Object.keys(rates.hardware_costs_per_year).length === 0
+            ? ' Nothing is planned yet.'
+            : ` Planned: ${Object.entries(rates.hardware_costs_per_year)
+                .map(([year, cost]) => `${year} ${formatEuro(cost)}`)
+                .join(' · ')}.`}
+        </p>
+        <label className="mt-3 flex items-center gap-2 text-sm text-slate-300">
+          <input
+            type="checkbox"
+            className="accent-indigo-500"
+            checked={rates.hardware_pass_through}
+            onChange={(e) =>
+              editRates((r) => {
+                r.hardware_pass_through = e.target.checked
+              })
+            }
+          />
+          Billed to the customer (pass-through): the plan's cost is charged on top of the selling
+          price
+        </label>
+      </Card>
 
       <Card title="Conversion Factors">
         <div className="grid grid-cols-2 gap-4 sm:max-w-md">

@@ -42,6 +42,13 @@ class Project(Base):
     hw_cost_per_hour: Mapped[float] = mapped_column(Float, default=DEFAULT_HW_COST_PER_HOUR)
     risk_factor_pct: Mapped[float] = mapped_column(Float, default=DEFAULT_RISK_FACTOR_PCT)
 
+    # Whether the hardware plan's cost is also billed to the customer. The plan
+    # itself is plaintext (see HardwareItem); its per-year totals feed the
+    # browser-side cost-profit analysis as a non-labor row.
+    hardware_pass_through: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false()
+    )
+
     # End-to-end encrypted money configuration. Ciphertext (AES-256-GCM,
     # base64) produced in the browser; the server never holds the key.
     encrypted_money: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -321,7 +328,7 @@ class HwProject(Base):
     # A budget is approved either as one number or split by type; `budget_mode`
     # says which of the two is the real one, so an unused figure left over from
     # the other mode can never quietly change a total.
-    budget_mode: Mapped[str] = mapped_column(String(16), default="split")
+    budget_mode: Mapped[str] = mapped_column(String(16), default="overall")
     budget_total: Mapped[float] = mapped_column(Float, default=0.0)
     budget_assets: Mapped[float] = mapped_column(Float, default=0.0)
     budget_licenses: Mapped[float] = mapped_column(Float, default=0.0)

@@ -18,6 +18,8 @@ import {
 } from 'lucide-react'
 import { api } from '../api'
 import HwBudgetFields from '../components/HwBudgetFields'
+import PlanningWindowFields from '../components/PlanningWindowFields'
+import { EMPTY_WINDOW, windowPayload, type PlanningWindowDraft } from '../hardware/planningWindow'
 import { budgetBreakdown, EMPTY_BUDGET, budgetPayload, type BudgetDraft } from '../hardware/budget'
 import type {
   HwLicenseExpiry,
@@ -594,6 +596,7 @@ function NewProjectModal({
   const [company, setCompany] = useState('')
   const [description, setDescription] = useState('')
   const [budget, setBudget] = useState<BudgetDraft>(EMPTY_BUDGET)
+  const [window, setWindow] = useState<PlanningWindowDraft>(EMPTY_WINDOW)
   const [portalReference, setPortalReference] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -609,6 +612,7 @@ function NewProjectModal({
         company: company.trim(),
         description: description.trim(),
         ...budgetPayload(budget),
+        ...windowPayload(window),
         portal_reference: portalReference.trim(),
       })
       // No setSaving(false): the caller navigates away and unmounts this form.
@@ -660,6 +664,8 @@ function NewProjectModal({
         </div>
 
         <HwBudgetFields draft={budget} onChange={setBudget} />
+
+        <PlanningWindowFields draft={window} onChange={setWindow} />
 
         <div className="sm:max-w-xs">
           <Label>Portal reference</Label>

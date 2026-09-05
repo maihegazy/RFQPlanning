@@ -1,5 +1,13 @@
+/** Every category a stored item may carry. "hardware" is kept for items written
+ *  before the hardware plan flowed into the analysis; new items cannot pick it. */
 export const COST_CATEGORIES = ['license', 'hardware', 'travel', 'other'] as const
 export type CostCategory = (typeof COST_CATEGORIES)[number]
+
+/** The categories offered for a new item: hardware is planned on the Hardware tab. */
+export const NEW_COST_CATEGORIES: readonly CostCategory[] = ['license', 'travel', 'other']
+
+/** The non-labor category the hardware plan's rows carry. */
+export const HARDWARE_PLAN_CATEGORY = 'hardware plan'
 
 /** Non-labor cost item; lives inside the encrypted blob. */
 export interface CostItem {

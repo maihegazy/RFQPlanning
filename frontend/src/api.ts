@@ -154,10 +154,13 @@ export const api = {
   deleteTemplate: (templateId: string) =>
     request<void>(`/api/templates/${templateId}`, { method: 'DELETE' }),
 
-  listProjects: (opts?: { status?: string; includeScenarios?: boolean }) => {
+  /** `effective` lists one project per scenario family: the winning scenario
+   *  where one is marked, the base project otherwise. */
+  listProjects: (opts?: { status?: string; includeScenarios?: boolean; effective?: boolean }) => {
     const params = new URLSearchParams()
     if (opts?.status) params.set('status', opts.status)
     if (opts?.includeScenarios) params.set('include_scenarios', 'true')
+    if (opts?.effective) params.set('effective', 'true')
     const qs = params.toString()
     return request<ProjectSummary[]>(`/api/projects${qs ? `?${qs}` : ''}`)
   },

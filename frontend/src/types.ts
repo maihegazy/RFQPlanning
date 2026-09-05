@@ -64,6 +64,10 @@ export interface RateConfig {
   risk_factor_pct: number
   ticket_story_points: Record<string, number>
   ticket_quotas: Record<string, Record<string, number>>
+  /** The hardware plan's total per project year; the cost-profit analysis
+   *  carries it as a non-labor row, billed to the customer when the flag is on. */
+  hardware_costs_per_year: Record<string, number>
+  hardware_pass_through: boolean
   /** The project's version after the read or write. */
   version: number
 }
@@ -231,6 +235,9 @@ export interface HwProjectInput {
   budget_total: number
   budget_assets: number
   budget_licenses: number
+  /** Optional planning window: the summary always spans at least these years. */
+  start_year: number | null
+  end_year: number | null
   /** Reserved for the later link to the company portal's project list. */
   portal_reference: string
 }

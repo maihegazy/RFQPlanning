@@ -118,6 +118,8 @@ function toRates(fx: Fixture): RateConfig {
     sp_to_hours: fx.rates.sp_to_hours,
     risk_factor_pct: fx.rates.risk_factor_pct,
     version: 1,
+    hardware_costs_per_year: {},
+    hardware_pass_through: false,
     ticket_story_points: fx.rates.ticket_story_points,
     ticket_quotas: fx.rates.ticket_quotas,
   }

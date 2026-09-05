@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from .. import models, schemas
 from ..database import get_db
-from ..services.calculations import hardware_item_years
+from ..services.hardware_plan import item_total, item_year_costs, item_years
 from ..services.http import attachment_disposition
 from ..services.loading import hardware_plan
 from ..services.versioning import require_version
@@ -30,18 +30,6 @@ XLSX_MEDIA_TYPE = (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def item_years(item: models.HardwareItem) -> list[int]:
-    return hardware_item_years(item)
-
-
-def item_total(item: models.HardwareItem) -> float:
-    """Yearly items cost unit_cost x qty for every selected year; a one-time
-    purchase costs unit_cost x qty once (in its selected purchase year)."""
-    years = item_years(item)
-    occurrences = 1 if item.billing == "once" else len(years)
-    return round(item.unit_cost * item.qty * occurrences, 2)
-
 
 def supplier_email(item: models.HardwareItem) -> str:
     """Supplier contact lives with the vendor in the catalog; fall back to the
@@ -71,24 +59,12 @@ def serialize_item(item: models.HardwareItem) -> dict:
     }
 
 
-def _year_costs(item: models.HardwareItem, project: models.Project) -> dict[int, float]:
-    """Cost the item contributes to each project year."""
-    years = item_years(item)
-    per_unit = round(item.unit_cost * item.qty, 2)
-    if item.billing == "once":
-        # A one-time purchase lands in its selected year (or the project
-        # start year when no year was picked).
-        year = years[0] if years else project.start_year
-        return {year: per_unit}
-    return {year: per_unit for year in years}
-
-
 def build_plan(project: models.Project) -> dict:
     items = [serialize_item(i) for i in project.hardware_items]
     per_year: dict[int, float] = {}
     warnings: list[str] = []
     for item in project.hardware_items:
-        for year, cost in _year_costs(item, project).items():
+        for year, cost in item_year_costs(item, project.start_year).items():
             if project.start_year <= year <= project.end_year:
                 per_year[year] = round(per_year.get(year, 0.0) + cost, 2)
             else:
@@ -354,7 +330,7 @@ def hardware_plan_xlsx(project_id: int, db: Session = Depends(get_db)):
         sheet.write(row_idx, 2, item["billing"], text_fmt)
         sheet.write(row_idx, 3, item["unit_cost"], money_fmt)
         sheet.write(row_idx, 4, item["qty"], int_fmt)
-        year_costs = _year_costs(record, project)
+        year_costs = item_year_costs(record, project.start_year)
         for offset, year in enumerate(years):
             value = year_costs.get(year)
             if value is None:

@@ -44,6 +44,12 @@ import HwAssetTable from '../components/HwAssetTable'
 import HwLicenseTable from '../components/HwLicenseTable'
 import HwImportDialog from '../components/HwImportDialog'
 import HwBudgetFields from '../components/HwBudgetFields'
+import PlanningWindowFields from '../components/PlanningWindowFields'
+import {
+  windowFromProject,
+  windowPayload,
+  type PlanningWindowDraft,
+} from '../hardware/planningWindow'
 import {
   budgetBreakdown,
   budgetPayload,
@@ -641,6 +647,7 @@ function EditProjectModal({
     portal_reference: project.portal_reference,
   })
   const [budget, setBudget] = useState<BudgetDraft>(() => draftFromProject(project))
+  const [window, setWindow] = useState<PlanningWindowDraft>(() => windowFromProject(project))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -654,6 +661,7 @@ function EditProjectModal({
         ...form,
         name: form.name.trim(),
         ...budgetPayload(budget),
+        ...windowPayload(window),
       })
       onSaved(updated)
       onClose()
@@ -701,6 +709,8 @@ function EditProjectModal({
         </div>
 
         <HwBudgetFields draft={budget} onChange={setBudget} />
+
+        <PlanningWindowFields draft={window} onChange={setWindow} />
 
         <div>
           <Label>Portal reference</Label>

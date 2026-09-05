@@ -54,10 +54,20 @@ export default function PortfolioPage() {
   }, [statuses])
 
   useEffect(() => {
+    // One row per scenario family: the winning scenario where one is marked,
+    // the base project otherwise, so the figures follow the marked winner.
+    let cancelled = false
     api
-      .listProjects()
-      .then(setProjects)
-      .catch((e) => setError(e.message))
+      .listProjects({ effective: true })
+      .then((rows) => {
+        if (!cancelled) setProjects(rows)
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e.message)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   const computeMoney = useCallback(async () => {
@@ -164,7 +174,7 @@ export default function PortfolioPage() {
           <StatTile
             label="Pipeline value"
             value={pipeline === undefined ? null : formatEuro(pipeline)}
-            hint="Total revenue of selected statuses"
+            hint="Total revenue of selected statuses; a marked winner stands for its project"
           />
           <StatTile
             label="Weighted revenue"
@@ -215,6 +225,14 @@ export default function PortfolioPage() {
                         >
                           {r.summary.name}
                         </Link>
+                        {r.summary.base_project_id !== null && (
+                          <span
+                            className="ml-2 rounded-full bg-amber-950 px-2 py-0.5 text-[10px] text-amber-300"
+                            title="The winning scenario stands for its project here"
+                          >
+                            👑 winner
+                          </span>
+                        )}
                       </td>
                       <td className="py-2 pr-4 text-slate-400">{r.summary.company}</td>
                       <td className="py-2 pr-4">

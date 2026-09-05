@@ -1,7 +1,15 @@
 import type { Project } from '../types'
 import { Button, Input, Label, Select } from './ui'
 import { formatMonth } from '../utils'
-import { COST_CATEGORIES, type CostItem } from '../money/types'
+import { NEW_COST_CATEGORIES, type CostCategory, type CostItem } from '../money/types'
+
+/** The categories a row may pick: the new ones, plus the row's own when it is
+ *  a "hardware" item from before the hardware plan flowed into the analysis. */
+function categoriesFor(current: CostCategory): readonly CostCategory[] {
+  return NEW_COST_CATEGORIES.includes(current)
+    ? NEW_COST_CATEGORIES
+    : [current, ...NEW_COST_CATEGORIES]
+}
 
 export default function CostItemsEditor({
   project,
@@ -42,8 +50,16 @@ export default function CostItemsEditor({
     <div className="space-y-3">
       {items.length === 0 && (
         <p className="text-sm text-slate-500">
-          Non-labor costs — tool licenses, test benches, travel — added to project cost. Mark an
-          item "billed" to also charge it to the customer.
+          Non-labor costs — tool licenses, travel, other expenses — added to project cost. Mark an
+          item "billed" to also charge it to the customer. Hardware and tools are planned on the
+          Hardware tab and reach the analysis from there.
+        </p>
+      )}
+      {items.some((item) => item.category === 'hardware') && (
+        <p className="text-xs text-amber-300">
+          Items in the retired "hardware" category still count. Hardware is now planned on the
+          Hardware tab, which feeds the analysis on its own — move these there to avoid counting
+          them twice.
         </p>
       )}
       {items.map((item, i) => (
@@ -66,7 +82,7 @@ export default function CostItemsEditor({
               onChange={(e) => update(i, { category: e.target.value as CostItem['category'] })}
               className="w-28"
             >
-              {COST_CATEGORIES.map((c) => (
+              {categoriesFor(item.category).map((c) => (
                 <option key={c} value={c}>
                   {c}
                 </option>

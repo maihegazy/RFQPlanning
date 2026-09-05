@@ -11,6 +11,7 @@ from ..database import get_db
 from ..services import calculations, cloning
 from ..services.loading import project_tree
 from ..services.rate_config import get_rate_config
+from ..services.scenarios import effective_projects
 from ..templates import resolve_template
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -38,13 +39,23 @@ def get_project_tree_or_404(project_id: int, db: Session) -> models.Project:
 
 @router.get("", response_model=list[schemas.ProjectSummary])
 def list_projects(status: str | None = None, include_scenarios: bool = False,
-                  db: Session = Depends(get_db)):
-    query = db.query(models.Project)
-    if not include_scenarios:
-        query = query.filter(models.Project.base_project_id.is_(None))
+                  effective: bool = False, db: Session = Depends(get_db)):
+    """The projects, base ones by default.
+
+    `include_scenarios` lists every row; `effective` lists one row per scenario
+    family, the winning scenario where one is marked and the base otherwise,
+    which is what the portfolio figures are built from.
+    """
+    query = db.query(models.Project).order_by(models.Project.updated_at.desc())
+    if effective:
+        projects = effective_projects(query.all())
+    else:
+        if not include_scenarios:
+            query = query.filter(models.Project.base_project_id.is_(None))
+        projects = query.all()
     if status is not None:
-        query = query.filter(models.Project.status == status)
-    return query.order_by(models.Project.updated_at.desc()).all()
+        projects = [project for project in projects if project.status == status]
+    return projects
 
 
 @router.post("", response_model=schemas.ProjectOut, status_code=201)
@@ -311,6 +322,7 @@ def export_project(project_id: int, db: Session = Depends(get_db)):
             "risk_factor_pct": rates["risk_factor_pct"],
             "ticket_sp": rates["ticket_story_points"],
             "ticket_quota": {str(y): q for y, q in rates["ticket_quotas"].items()},
+            "hardware_pass_through": rates["hardware_pass_through"],
         },
         "hardware_items": [
             {
@@ -376,6 +388,7 @@ def import_project(data: schemas.LegacyProjectImport, db: Session = Depends(get_
     rc = data.rate_config
     project.sp_to_hours = rc.sp_to_hours
     project.risk_factor_pct = rc.risk_factor_pct
+    project.hardware_pass_through = rc.hardware_pass_through
 
     for size in TICKET_SIZES:
         db.add(models.TicketConfig(

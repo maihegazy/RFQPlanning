@@ -39,16 +39,28 @@ export function nextMonth(month: string): string {
   return monthNumber === 12 ? formatMonth(year + 1, 1) : formatMonth(year, monthNumber + 1)
 }
 
+/**
+ * Numbers follow the browser's locale: a German-speaking user reads
+ * "1.234,56", an English-speaking one "1,234.56". Excel exports carry number
+ * formats rather than these strings, so they are unaffected.
+ */
 export function formatNumber(value: unknown, decimals = 2): string {
   if (typeof value !== 'number') return String(value ?? '')
-  return value.toLocaleString('en-US', {
+  return value.toLocaleString(undefined, {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   })
 }
 
+const euro = new Intl.NumberFormat(undefined, {
+  style: 'currency',
+  currency: 'EUR',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})
+
 export function formatEuro(value: number): string {
-  return `${formatNumber(value)} €`
+  return euro.format(value)
 }
 
 export function projectYears(startYear: number, endYear: number): number[] {

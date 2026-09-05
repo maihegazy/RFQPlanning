@@ -80,6 +80,8 @@ const rates: RateConfig = {
   sp_to_hours: 4.0,
   risk_factor_pct: 10.0,
   version: 1,
+  hardware_costs_per_year: {},
+  hardware_pass_through: false,
   ticket_story_points: { small: 2, medium: 5, large: 10 },
   ticket_quotas: {
     '2026': { small: 20, medium: 30, large: 10 },
@@ -230,5 +232,32 @@ describe('money engine (golden master vs. original Python implementation)', () =
     expect(overall.man_hours).toBeCloseTo(3360)
     expect(overall.selling_price).toBe(0)
     expect(overall.cost).toBe(0)
+  })
+})
+
+describe('the hardware plan in the analysis', () => {
+  it('carries the plan as a non-labor row per year, billed only as a pass-through', () => {
+    const withPlan: RateConfig = {
+      ...rates,
+      hardware_costs_per_year: { '2026': 1200, '2027': 300 },
+      hardware_pass_through: false,
+    }
+    const cost = computeBudgetPlan(project, money, withPlan)
+    const planRows = cost.non_labor_summary.filter((r) => r.category === 'hardware plan')
+    expect(planRows).toEqual([
+      { year: '2026', category: 'hardware plan', cost: 1200, billed: 0 },
+      { year: '2027', category: 'hardware plan', cost: 300, billed: 0 },
+    ])
+    const overall2026 = cost.cost_profit_overall.find((r) => r.year === '2026')!
+    const bare2026 = computeBudgetPlan(project, money, rates).cost_profit_overall.find(
+      (r) => r.year === '2026',
+    )!
+    expect(overall2026.cost - bare2026.cost).toBeCloseTo(1200, 6)
+    expect(overall2026.selling_price).toBeCloseTo(bare2026.selling_price, 6)
+
+    const billed = computeBudgetPlan(project, money, { ...withPlan, hardware_pass_through: true })
+    const billed2026 = billed.cost_profit_overall.find((r) => r.year === '2026')!
+    expect(billed2026.selling_price - bare2026.selling_price).toBeCloseTo(1200, 6)
+    expect(billed.non_labor_summary.find((r) => r.category === 'hardware plan')?.billed).toBe(1200)
   })
 })

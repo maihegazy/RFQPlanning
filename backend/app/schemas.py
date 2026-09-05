@@ -14,6 +14,7 @@ from pydantic import (
 
 from .config import (
     ASPICE_PROCESSES,
+    DATE_WINDOW_YEARS,
     HARDWARE_BILLING,
     HW_BUDGET_MODES,
     LEVELS,
@@ -254,6 +255,10 @@ class RateConfigOut(ApiModel):
     risk_factor_pct: float
     ticket_story_points: dict[str, float]
     ticket_quotas: dict[int, dict[str, float]]
+    # The hardware plan's totals per project year: the cost-profit analysis
+    # carries them as a non-labor row, billed to the customer when the flag is on.
+    hardware_costs_per_year: dict[int, float] = Field(default_factory=dict)
+    hardware_pass_through: bool = False
     # The project's version after the read or write, for the next `expected_version`.
     version: int = 1
 
@@ -263,6 +268,7 @@ class RateConfigUpdate(ApiModel):
     risk_factor_pct: float | None = Field(None, ge=0.0, le=1_000_000)
     ticket_story_points: dict[str, float] | None = None
     ticket_quotas: dict[int, dict[str, float]] | None = None
+    hardware_pass_through: bool | None = None
     # The project version the client last saw; a mismatch is a 409, nothing is written.
     expected_version: int | None = Field(None, ge=1)
 
@@ -336,6 +342,7 @@ class LegacyRateConfigImport(ApiModel):
     risk_factor_pct: float = Field(0.0, ge=0.0)
     ticket_sp: dict[str, float] = Field(default_factory=dict)
     ticket_quota: dict[int, dict[str, float]] = Field(default_factory=dict)
+    hardware_pass_through: bool = False
 
     @field_validator("ticket_sp")
     @classmethod
@@ -707,19 +714,37 @@ class HwProjectInput(ApiModel):
     company: str = Field("", max_length=255)
     description: str = Field("", max_length=4000)
     # "split" budgets assets and licenses separately; "overall" approves one
-    # number and leaves the split unknown.
-    budget_mode: str = Field("split")
+    # number and leaves the split unknown. A client that omits the mode gets
+    # "overall", unless it sends split figures and no overall one.
+    budget_mode: str | None = None
     budget_total: Money = Field(0.0, ge=0.0, le=MAX_MONEY)
     budget_assets: Money = Field(0.0, ge=0.0, le=MAX_MONEY)
     budget_licenses: Money = Field(0.0, ge=0.0, le=MAX_MONEY)
+    # Optional planning window: the summary always spans at least these years,
+    # so a project shows its whole budget horizon before anything is bought.
+    start_year: int | None = Field(None, ge=DATE_WINDOW_YEARS[0], le=DATE_WINDOW_YEARS[1])
+    end_year: int | None = Field(None, ge=DATE_WINDOW_YEARS[0], le=DATE_WINDOW_YEARS[1])
     portal_reference: str = Field("", max_length=255)
 
     @field_validator("budget_mode")
     @classmethod
-    def _known_budget_mode(cls, value: str) -> str:
-        if value not in HW_BUDGET_MODES:
+    def _known_budget_mode(cls, value: str | None) -> str | None:
+        if value is not None and value not in HW_BUDGET_MODES:
             raise ValueError(f"budget_mode must be one of {HW_BUDGET_MODES}")
         return value
+
+    @model_validator(mode="after")
+    def _infer_mode_and_check_window(self):
+        if self.budget_mode is None:
+            split_only = (self.budget_assets or self.budget_licenses) and not self.budget_total
+            self.budget_mode = "split" if split_only else "overall"
+        if (
+            self.start_year is not None
+            and self.end_year is not None
+            and self.start_year > self.end_year
+        ):
+            raise ValueError("The planning window's start year must not be after its end year")
+        return self
 
 
 class HwProjectOut(HwProjectInput):

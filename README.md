@@ -176,6 +176,14 @@ per-theme classes.
   matching the original layout).
 - **Import/export** — projects round-trip through the desktop app's JSON format
   (`POST /api/projects/import`, `GET /api/projects/{id}/export`).
+- **Scenarios** — a project can be cloned into scenarios (`POST
+  /api/projects/{id}/clone`) and one of them marked as the winner. The
+  Portfolio page and the capacity heatmap count each family once: the winning
+  scenario where one is marked, the base project otherwise
+  (`GET /api/projects?effective=true`).
+- **Number formatting** follows the browser's locale ("1.234,56 €" in a German
+  browser, "€1,234.56" in an English one); Excel exports carry number formats
+  and are unaffected.
 - **Hardware planning** — the Hardware tab plans the tools and equipment a
   quotation needs: each row has an ASPICE process, `yearly` or `once` billing, a
   unit cost, a quantity (use 0 to keep an alternative on the sheet without
@@ -196,10 +204,14 @@ per-theme classes.
   an AMTS board to each AMTS bench and one each of the project licences
   (compiler, Polyspace, VectorCAST, DaVinci Configurator and Developer). Every
   generated row is an ordinary row afterwards, so it stays editable.
-  Hardware totals are reported on their own (they
-  do not feed the cost-profit analysis) and export both as a standalone workbook
-  and as a Hardware sheet in the budget workbook. Unlike financial data, the
-  hardware plan is stored in plaintext.
+  The plan's per-year totals are carried into the cost-profit analysis as a
+  "hardware plan" non-labor row; the Budget tab's *billed to the customer*
+  switch (`hardware_pass_through`) decides whether that cost is also charged on
+  top of the selling price. The "hardware" category of non-labor cost items is
+  retired for new items so nothing is counted twice; existing items in it still
+  count. The plan also exports as a standalone workbook and as a Hardware sheet
+  in the budget workbook. Unlike financial data, the hardware plan is stored in
+  plaintext.
 - **Hardware catalog seed** — a standard catalog of ~75 supplier items (Vector,
   MathWorks, ETAS, Lauterbach, TASKING, tracetronic, IBM, Atlassian, JFrog and
   others) is installed by migration `20260818_0003` from
@@ -238,11 +250,14 @@ projects.
   `frontend/src/hardware/depreciation.ts` for live feedback while editing, and
   both are unit-tested against values taken out of the original workbook.
 - **Budget** — a project's budget is approved either as **one overall figure**
-  or **split between assets and licenses**, and `budget_mode` records which of
-  the two is authoritative so a stale figure left over from the other mode can
-  never quietly change a total. Both sets of numbers are kept when the mode is
-  switched. In overall mode there is no per-type share by definition, so the
-  dashboard reports the total and omits the breakdown rather than inventing one.
+  (the default for a new project) or **split between assets and licenses**, and
+  `budget_mode` records which of the two is authoritative so a stale figure left
+  over from the other mode can never quietly change a total. Both sets of
+  numbers are kept when the mode is switched. In overall mode there is no
+  per-type share by definition, so the dashboard reports the total and omits
+  the breakdown rather than inventing one. An optional **planning window**
+  (first and last year) makes the summary span the whole budget horizon before
+  anything is bought.
 - **Project overview** (`/hardware/projects/{id}`) — budget / committed /
   planned / remaining tiles, then a Summary tab (per-year budget table including
   the workbook's manual "Special cases" deltas, license renewal risk, and the

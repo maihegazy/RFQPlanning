@@ -5,19 +5,14 @@ exclusively in the browser against end-to-end encrypted money data — see
 frontend/src/money/engine.ts, which mirrors the same row/pivot structure.
 """
 
-import json
-
 from .. import models
 from .date_utils import get_month_list
+from .hardware_plan import item_years
 
 
 def hardware_item_years(item: models.HardwareItem) -> list[int]:
     """The project years a hardware row applies to, from its JSON column."""
-    try:
-        years = json.loads(item.years_json or "[]")
-    except ValueError:
-        return []
-    return sorted({int(year) for year in years})
+    return item_years(item)
 
 
 def timeline_conflicts(project: models.Project, start: tuple[int, int],
