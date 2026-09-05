@@ -1,34 +1,68 @@
+# The shipped deployment: one published port (the web tier), credentials from
+# .env, migrations run once by a dedicated step before the API starts.
+#
+#   cp .env.example .env   # then set POSTGRES_PASSWORD
+#   docker compose up --build
+#
+# See "Deployment contract" in the README before exposing this to a network.
+
 services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: rfq
-      POSTGRES_PASSWORD: rfq
-      POSTGRES_DB: rfqplanner
+      POSTGRES_USER: ${POSTGRES_USER:-rfq}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (see .env.example)}
+      POSTGRES_DB: ${POSTGRES_DB:-rfqplanner}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U rfq -d rfqplanner"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rfq} -d ${POSTGRES_DB:-rfqplanner}"]
       interval: 5s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
+
+  # Upgrades the schema and exits; the API waits for it so that several API
+  # processes never race each other to create the tables.
+  migrate:
+    build: ./backend
+    command: ["python", "-m", "app.migrate"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-rfq}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-rfqplanner}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
 
   backend:
     build: ./backend
     environment:
-      DATABASE_URL: postgresql://rfq:rfq@db:5432/rfqplanner
+      DATABASE_URL: postgresql://${POSTGRES_USER:-rfq}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-rfqplanner}
+      RUN_MIGRATIONS_ON_STARTUP: "false"
+      MAX_UPLOAD_BYTES: "26214400"
+      # Empty means same-origin only; the web tier proxies /api on the same host.
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      # Name the header your authenticating proxy sets (e.g. X-Forwarded-User)
+      # to make the API refuse requests that did not come through it.
+      TRUSTED_PROXY_USER_HEADER: ${TRUSTED_PROXY_USER_HEADER:-}
     depends_on:
       db:
         condition: service_healthy
-    ports:
-      - "8000:8000"
+      migrate:
+        condition: service_completed_successfully
+    # No `ports`: the API is reachable only through the web tier's proxy.
+    expose:
+      - "8000"
+    restart: unless-stopped
 
   frontend:
     build: ./frontend
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
-      - "8080:80"
+      - "${FRONTEND_PORT:-8080}:8080"
+    restart: unless-stopped
 
 volumes:
   pgdata:

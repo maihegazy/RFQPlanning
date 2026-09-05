@@ -72,8 +72,42 @@ DATABASE_URL = os.environ.get(
     "postgresql://rfq:rfq@localhost:5432/rfqplanner",
 )
 
+
+def _flag(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None or value.strip() == "":
+        return default
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _size(name: str, default: int) -> int:
+    value = os.environ.get(name, "").strip()
+    return int(value) if value.isdigit() else default
+
+
+# Browsers only need CORS when the app is served from another origin than the
+# API. The shipped deployment proxies /api through the same host, and the Vite dev
+# server proxies it too, so the default is same-origin only: no CORS headers at
+# all. Set CORS_ORIGINS to a comma-separated list to open specific origins.
 CORS_ORIGINS = [
     origin.strip()
-    for origin in os.environ.get("CORS_ORIGINS", "*").split(",")
+    for origin in os.environ.get("CORS_ORIGINS", "").split(",")
     if origin.strip()
 ]
+
+# Largest workbook the import endpoint accepts. nginx enforces the same figure in
+# front (client_max_body_size), so a bigger file is refused before it is read.
+MAX_UPLOAD_BYTES = _size("MAX_UPLOAD_BYTES", 25 * 1024 * 1024)
+
+# Whether each API process upgrades the database when it starts. The Compose
+# stack runs migrations in one dedicated step instead, so its API processes start
+# with this off; a single-process deployment can leave it on. Concurrent runs are
+# serialised with an advisory lock on PostgreSQL either way.
+RUN_MIGRATIONS_ON_STARTUP = _flag("RUN_MIGRATIONS_ON_STARTUP", True)
+
+# The app has no login of its own: it is meant to sit behind a reverse proxy that
+# authenticates users. Naming the header that proxy sets after authenticating
+# (e.g. "X-Forwarded-User" or "Remote-User") makes the API refuse any request
+# that lacks it. Only safe when nothing but that proxy can reach the API, and
+# when the proxy overwrites the header rather than passing a client's through.
+TRUSTED_PROXY_USER_HEADER = os.environ.get("TRUSTED_PROXY_USER_HEADER", "").strip()

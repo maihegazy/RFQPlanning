@@ -86,3 +86,45 @@ jobs:
         run: docker build --tag rfq-backend:ci ./backend
       - name: Build frontend image
         run: docker build --tag rfq-frontend:ci ./frontend
+      - name: Validate the Compose file
+        run: docker compose config --quiet
+        env:
+          POSTGRES_PASSWORD: ci-only
+      - name: Start the stack
+        run: docker compose up -d --build --wait --wait-timeout 180
+        env:
+          POSTGRES_PASSWORD: ci-only
+      - name: Smoke-test the deployment contract
+        env:
+          POSTGRES_PASSWORD: ci-only
+        run: |
+          set -eux
+          curl -fsS http://localhost:8080/api/health
+          # The API is reachable only through the web tier
+          if curl -s --max-time 5 http://localhost:8000/api/health; then
+            echo "the backend port is published on the host" >&2
+            exit 1
+          fi
+          # A 2 MB upload passes nginx (whose default cap was 1 MB) and reaches
+          # the API, which answers for the missing project rather than with 413
+          head -c 2097152 /dev/urandom > big.bin
+          code=$(curl -s -o /dev/null -w '%{http_code}' \
+            -F "file=@big.bin;filename=big.xlsx" \
+            "http://localhost:8080/api/hw/projects/1/import?dry_run=true")
+          test "$code" = "404"
+          # A 30 MB upload is refused at the edge
+          head -c 31457280 /dev/urandom > huge.bin
+          code=$(curl -s -o /dev/null -w '%{http_code}' \
+            -F "file=@huge.bin;filename=huge.xlsx" \
+            "http://localhost:8080/api/hw/projects/1/import?dry_run=true")
+          test "$code" = "413"
+      - name: Show stack logs
+        if: failure()
+        run: docker compose logs
+        env:
+          POSTGRES_PASSWORD: ci-only
+      - name: Stop the stack
+        if: always()
+        run: docker compose down --volumes
+        env:
+          POSTGRES_PASSWORD: ci-only

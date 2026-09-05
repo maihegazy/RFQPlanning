@@ -44,11 +44,53 @@ cost per hour, ticket prices) are **end-to-end encrypted in the browser**:
 ## Quick start (Docker)
 
 ```bash
+cp .env.example .env        # set POSTGRES_PASSWORD
 docker compose up --build
 ```
 
-- Web app: http://localhost:8080
-- API + interactive docs: http://localhost:8000/docs
+- Web app: http://localhost:8080 (change the host port with `FRONTEND_PORT` in `.env`)
+- Interactive API docs: http://localhost:8080/api/docs
+
+The API is not published on the host: the web tier proxies `/api` to it over the
+Compose network. Read "Deployment contract" below before exposing the stack to a
+network.
+
+## Deployment contract
+
+The app has no login of its own. Run it behind something that authenticates
+users (the company reverse proxy, an SSO gateway, oauth2-proxy) and keep the
+API reachable from nothing else. The Compose stack is built for that:
+
+- **One published port.** Only the web tier (nginx) listens on the host, on
+  `FRONTEND_PORT`. The API is on the internal network only; `/api` reaches it
+  through the web tier.
+- **Secrets from the environment.** Database credentials come from `.env`
+  (`.env.example` lists every setting); Compose refuses to start without
+  `POSTGRES_PASSWORD`.
+- **One migrator.** The `migrate` service upgrades the schema
+  (`python -m app.migrate`) and exits before the API starts; the API processes
+  run with `RUN_MIGRATIONS_ON_STARTUP=false`. On PostgreSQL an advisory lock
+  serialises concurrent upgrades anyway, so a multi-worker or multi-replica
+  deployment that leaves the flag on cannot race itself either.
+- **Unprivileged containers.** The backend runs as user `app`; the web tier is
+  `nginx-unprivileged` on port 8080.
+- **Health.** `GET /api/health` answers `503` when the database cannot be
+  reached. The backend image uses it as its health check and the web tier
+  waits for it.
+- **Upload cap.** The Excel import accepts workbooks up to 25 MB, enforced by
+  nginx (`client_max_body_size`) and by the API (`MAX_UPLOAD_BYTES`, in bytes);
+  keep the two in step. `defusedxml` is installed so openpyxl refuses XML bombs.
+- **Same-origin by default.** No CORS headers are sent unless `CORS_ORIGINS`
+  lists the origins the app is served from; neither the Compose stack nor the
+  Vite dev server needs it, both proxy `/api` on their own origin.
+- **Optional in-app check.** Set `TRUSTED_PROXY_USER_HEADER` to the header your
+  authenticating proxy sets after login (for example `X-Forwarded-User`). The
+  API then answers `401` to any request under `/api` (except `/api/health`)
+  that lacks it. This is only meaningful when nothing but that proxy can reach
+  the API and the proxy overwrites the header instead of passing a client's
+  value through — which is what the Compose network layout provides.
+- **Backups.** Back up the PostgreSQL volume (`pgdata`). It holds only wrapped
+  keys and ciphertext for the financial data; keep the recovery key elsewhere.
 
 ## Local development
 
@@ -87,12 +129,11 @@ npm run typecheck
 npm run build
 ```
 
-The same checks, plus a build of both Docker images, run in GitHub Actions for
-pull requests and pushes to `main`. Backend dependencies are pinned:
-`requirements.txt` and `requirements-dev.txt` are compiled from the `.in` files
-with `pip-compile` (see `requirements.in`); edit the `.in` file and recompile
-rather than editing the pinned file by hand. Known audit defects are recorded
-as strict expected failures; each later fix must remove its matching marker.
+The same checks, plus a build of both Docker images and a smoke test of the
+Compose stack, run in GitHub Actions for pull requests and pushes to `main`.
+Backend dependencies are pinned: `requirements.txt` and `requirements-dev.txt`
+are compiled from the `.in` files with `pip-compile` (see `requirements.in`);
+edit the `.in` file and recompile rather than editing the pinned file by hand.
 
 ## Interface
 
@@ -275,7 +316,8 @@ shared hardware catalog entry, so there is one place per vendor.
 │   ├── app/
 │   │   ├── main.py            # FastAPI app
 │   │   ├── config.py          # Domain constants (levels, locations, …)
-│   │   ├── database.py        # SQLAlchemy engine/session
+│   │   ├── database.py        # SQLAlchemy engine/session, migrations, health probe
+│   │   ├── migrate.py         # `python -m app.migrate`: upgrade the schema and exit
 │   │   ├── models.py          # ORM models
 │   │   ├── schemas.py         # Pydantic schemas
 │   │   ├── routers/           # REST endpoints

@@ -1,13 +1,11 @@
-"""Executable specifications for known defects found during the Phase 1 audit.
+"""Executable specifications for defects found during the 2025 audit.
 
-These tests are strict expected failures: CI stays green while the defects are
-being fixed, and an unexpected pass forces the corresponding marker to be
-removed in the implementation PR.
+They started life as strict expected failures; every one has since been fixed,
+so they now guard against the defects coming back.
 """
 
 import os
 
-import pytest
 import yaml
 
 from app.config import CORS_ORIGINS
@@ -182,18 +180,10 @@ def test_partial_resource_grid_payload_is_rejected(client):
     assert response.status_code == 422
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Production defaults allow every CORS origin",
-)
 def test_default_cors_configuration_is_restricted():
     assert CORS_ORIGINS != ["*"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="The default Compose file publishes the unauthenticated backend port",
-)
 def test_default_compose_does_not_publish_backend_port():
     compose_path = os.path.join(os.path.dirname(__file__), "..", "..", "docker-compose.yml")
     with open(compose_path, encoding="utf-8") as compose_file:

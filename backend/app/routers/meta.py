@@ -13,7 +13,7 @@ from ..config import (
     PROJECT_STATUSES,
     TICKET_SIZES,
 )
-from ..database import get_db
+from ..database import check_database, get_db
 from ..templates import TEMPLATES, normalize_roles
 
 router = APIRouter(prefix="/api", tags=["meta"])
@@ -82,4 +82,15 @@ def get_meta():
 
 @router.get("/health")
 def health():
-    return {"status": "ok"}
+    """Liveness and readiness in one: the process answers and the database does too.
+
+    A 503 here tells the container runtime and the reverse proxy to stop routing
+    to this process, which a bare "ok" never could.
+    """
+    try:
+        check_database()
+    except Exception as exc:  # any driver error means "not ready", whatever its type
+        raise HTTPException(
+            status_code=503, detail={"status": "degraded", "database": "unreachable"}
+        ) from exc
+    return {"status": "ok", "database": "ok"}

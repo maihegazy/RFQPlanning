@@ -20,6 +20,7 @@ from ..config import (
     HW_LEASING_MONTHS,
     HW_LICENSE_CATEGORIES,
     HW_PURCHASE_TYPES,
+    MAX_UPLOAD_BYTES,
 )
 from ..database import get_db
 from ..services import hw_depreciation, hw_excel
@@ -415,6 +416,25 @@ def _duplicate_warnings(project: models.HwProject,
     return warnings
 
 
+def _read_upload(file: UploadFile) -> bytes:
+    """The upload's bytes, or a 413 once it is bigger than the configured cap.
+
+    The whole workbook has to sit in memory for openpyxl, so the cap is what keeps
+    one oversized (or hostile) upload from taking the process down. Reading one
+    byte past the cap is enough to know; the rest is never pulled in.
+    """
+    content = file.file.read(MAX_UPLOAD_BYTES + 1)
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"The workbook is larger than the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB "
+                "upload limit"
+            ),
+        )
+    return content
+
+
 @router.post("/hw/projects/{project_id}/import")
 def import_hw_workbook(project_id: int, file: UploadFile = File(...),
                        dry_run: bool = True,
@@ -427,8 +447,9 @@ def import_hw_workbook(project_id: int, file: UploadFile = File(...),
     sheet the workbook carries (a register the file does not mention is kept).
     """
     project = get_hw_project_or_404(project_id, db)
+    content = _read_upload(file)
     try:
-        parsed = hw_excel.parse_workbook(file.file.read())
+        parsed = hw_excel.parse_workbook(content)
         # A pydantic ValidationError is a ValueError: a cell the parser let through
         # but the schema refuses is reported as a bad file, not a server error.
         preview = schemas.HwImportPreview(
