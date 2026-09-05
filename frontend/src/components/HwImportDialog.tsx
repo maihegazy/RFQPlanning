@@ -11,7 +11,13 @@ import {
   Upload,
 } from 'lucide-react'
 import { api } from '../api'
-import type { HwAssetInput, HwImportPreview, HwLicenseInput } from '../types'
+import type {
+  HwAssetInput,
+  HwImportMode,
+  HwImportPreview,
+  HwImportResult,
+  HwLicenseInput,
+} from '../types'
 import { Button, EmptyState, ErrorBanner, Modal, Spinner } from './ui'
 import { formatEuro } from '../utils'
 
@@ -20,6 +26,19 @@ const PREVIEW_LIMIT = 25
 /** Warnings shown before the list collapses behind a toggle. */
 const WARNING_LIMIT = 5
 const EXPECTED_SHEETS = ['Assets', 'Licenses']
+
+const MODES: { key: HwImportMode; label: string; hint: string }[] = [
+  {
+    key: 'append',
+    label: 'Add to the registers',
+    hint: 'Every parsed row is added; rows already in the register stay as they are.',
+  },
+  {
+    key: 'replace',
+    label: 'Replace the registers in the file',
+    hint: 'A register whose sheet the workbook carries is cleared first; a register the file does not mention is kept.',
+  },
+]
 
 interface PreviewColumn<T> {
   key: string
@@ -161,9 +180,10 @@ export default function HwImportDialog({
 }: {
   projectId: number
   onClose: () => void
-  onImported: () => void
+  onImported: (result: HwImportResult) => void
 }) {
   const [file, setFile] = useState<File | null>(null)
+  const [mode, setMode] = useState<HwImportMode>('append')
   const [preview, setPreview] = useState<HwImportPreview | null>(null)
   const [parsing, setParsing] = useState(false)
   const [importing, setImporting] = useState(false)
@@ -218,8 +238,8 @@ export default function HwImportDialog({
     setImporting(true)
     setError('')
     try {
-      await api.importHwWorkbook(projectId, file, false)
-      onImported()
+      const result = await api.importHwWorkbook(projectId, file, false, mode)
+      onImported(result)
       onClose()
     } catch (err) {
       setError(errorMessage(err))
@@ -245,7 +265,7 @@ export default function HwImportDialog({
             <span className="font-medium text-slate-200">Licenses</span> sheet, or both, carrying
             the working document&apos;s headers. Columns are matched by header name, extra columns
             are reported as warnings and per-year columns are ignored — depreciation is recomputed
-            here. Imported rows are added to this project; nothing existing is overwritten.
+            here.
           </p>
           <a
             href={api.hwImportTemplateUrl()}
@@ -296,6 +316,36 @@ export default function HwImportDialog({
             </div>
           )}
         </div>
+
+        <fieldset className="grid gap-2 sm:grid-cols-2">
+          <legend className="mb-1 text-xs uppercase tracking-wide text-slate-500">
+            What happens to the rows already in the registers
+          </legend>
+          {MODES.map((option) => (
+            <label
+              key={option.key}
+              className={`flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2.5 text-sm transition-colors ${
+                mode === option.key
+                  ? 'border-indigo-700 bg-indigo-950/40'
+                  : 'border-slate-800 bg-slate-900/40 hover:border-slate-700'
+              }`}
+            >
+              <input
+                type="radio"
+                name="hw-import-mode"
+                value={option.key}
+                checked={mode === option.key}
+                disabled={importing}
+                onChange={() => setMode(option.key)}
+                className="mt-0.5 accent-indigo-500"
+              />
+              <span>
+                <span className="font-medium text-slate-200">{option.label}</span>
+                <span className="mt-0.5 block text-xs text-slate-500">{option.hint}</span>
+              </span>
+            </label>
+          ))}
+        </fieldset>
 
         {error && <ErrorBanner message={error} />}
 
@@ -427,7 +477,7 @@ export default function HwImportDialog({
             {parsedCount > 0
               ? `${assetCount} asset${assetCount === 1 ? '' : 's'} and ${licenseCount} license${
                   licenseCount === 1 ? '' : 's'
-                } will be added to this project.`
+                } will ${mode === 'replace' ? 'replace the matching registers of' : 'be added to'} this project.`
               : 'Choose a workbook to preview what would be imported.'}
           </span>
           <Button variant="secondary" onClick={onClose} disabled={importing}>

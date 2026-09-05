@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
 import type {
   HardwareBilling,
@@ -45,14 +45,22 @@ export default function HardwareTab({ project, meta }: { project: Project; meta:
   const [catalog, setCatalog] = useState<HardwareCatalogItem[]>([])
   const [showCatalog, setShowCatalog] = useState(false)
   const [showWizard, setShowWizard] = useState(false)
+  const [warnings, setWarnings] = useState<string[]>([])
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<number | null>(null)
+  /* Switching scenarios while a plan is still loading must not let the slower
+   * response land on the newer project. */
+  const loadSeq = useRef(0)
 
   const reload = useCallback(() => {
+    const seq = loadSeq.current + 1
+    loadSeq.current = seq
     api
       .getHardwarePlan(project.id)
       .then((plan) => {
+        if (seq !== loadSeq.current) return
+        setWarnings(plan.warnings ?? [])
         setRows(
           plan.items.map((item) => ({
             key: nextKey++,
@@ -71,7 +79,9 @@ export default function HardwareTab({ project, meta }: { project: Project; meta:
         )
         setDeletedIds([])
       })
-      .catch((e) => setError(e.message))
+      .catch((e) => {
+        if (seq === loadSeq.current) setError(e.message)
+      })
   }, [project.id])
 
   const reloadCatalog = useCallback(() => {
@@ -82,6 +92,11 @@ export default function HardwareTab({ project, meta }: { project: Project; meta:
   }, [])
 
   useEffect(() => {
+    // A new project starts from a blank slate rather than the previous plan.
+    setRows(null)
+    setDeletedIds([])
+    setError('')
+    setSavedAt(null)
     reload()
     reloadCatalog()
   }, [reload, reloadCatalog])
@@ -246,7 +261,6 @@ export default function HardwareTab({ project, meta }: { project: Project; meta:
                 }}
               >
                 <option value="">+ Add from catalog…</option>
-                <option value="">+ Add from catalog…</option>
                 {catalogBySupplier.map(([supplier, supplierItems]) => (
                   <optgroup key={supplier} label={supplier}>
                     {supplierItems.map((item) => (
@@ -280,6 +294,13 @@ export default function HardwareTab({ project, meta }: { project: Project; meta:
         {error && (
           <div className="mb-4">
             <ErrorBanner message={error} />
+          </div>
+        )}
+        {warnings.length > 0 && (
+          <div className="mb-4 rounded-lg border border-amber-800 bg-amber-950/40 px-4 py-2 text-sm text-amber-200">
+            {warnings.map((warning) => (
+              <div key={warning}>⚠ {warning}</div>
+            ))}
           </div>
         )}
         {savedAt !== null && !hasChanges && !error && (

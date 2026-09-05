@@ -17,12 +17,13 @@ import { MONTH_NAMES } from '../utils'
 import { downloadBlob } from '../download'
 import { useVault } from '../vault/VaultContext'
 import { VaultDialog, VaultStatusButton } from '../vault/VaultGate'
-import { emptyMoneyConfig, type MoneyConfig } from '../money/types'
-
-type LegacyImport = {
-  rate_config?: Record<string, unknown>
-  [key: string]: unknown
-}
+import { emptyMoneyConfig, normalizeMoneyConfig, type MoneyConfig } from '../money/types'
+import {
+  containsFinancialData,
+  moneyFromImport,
+  withFinancialData,
+  type LegacyImport,
+} from '../money/portable'
 
 const STATUS_TABS = [
   { key: '', label: 'All' },
@@ -162,13 +163,6 @@ function ProjectCard({
   )
 }
 
-function containsFinancialData(data: LegacyImport): boolean {
-  const rates = data.rate_config ?? {}
-  return Boolean(
-    rates.hourly_rates || rates.cost_rates || rates.ticket_price || rates.hw_cost_per_hour,
-  )
-}
-
 export default function ProjectsPage() {
   const vault = useVault()
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null)
@@ -201,23 +195,8 @@ export default function ProjectsPage() {
 
       try {
         const meta = await api.getMeta()
-        const rates = data.rate_config ?? {}
         const base = emptyMoneyConfig(meta.locations, meta.levels, meta.ticket_sizes)
-        const money: MoneyConfig = {
-          ...base,
-          hourly_rates: { ...base.hourly_rates, ...((rates.hourly_rates ?? {}) as object) },
-          cost_rates: Object.fromEntries(
-            meta.locations.map((location) => [
-              location,
-              {
-                ...base.cost_rates[location],
-                ...((rates.cost_rates as Record<string, object> | undefined)?.[location] ?? {}),
-              },
-            ]),
-          ),
-          hw_cost_per_hour: Number(rates.hw_cost_per_hour ?? 0),
-          ticket_prices: { ...base.ticket_prices, ...((rates.ticket_price ?? {}) as object) },
-        }
+        const money = moneyFromImport(data, base)
         const blob = await vault.encrypt(money)
         await api.putMoneyBlob(project.id, {
           encrypted_money: blob.ciphertext,
@@ -281,23 +260,17 @@ export default function ProjectsPage() {
     setError('')
     setNotice('')
     try {
-      const data = (await api.exportProject(project.id)) as {
-        rate_config?: Record<string, unknown>
-      }
+      const data = (await api.exportProject(project.id)) as LegacyImport
       if (vault.status === 'unlocked') {
         const blob = await api.getMoneyBlob(project.id)
         if (blob.encrypted_money && blob.money_iv) {
-          const money = await vault.decrypt<MoneyConfig>({
-            iv: blob.money_iv,
-            ciphertext: blob.encrypted_money,
-          })
-          data.rate_config = {
-            ...(data.rate_config ?? {}),
-            hourly_rates: money.hourly_rates,
-            cost_rates: money.cost_rates,
-            hw_cost_per_hour: money.hw_cost_per_hour,
-            ticket_price: money.ticket_prices,
-          }
+          const money = normalizeMoneyConfig(
+            await vault.decrypt<MoneyConfig>({
+              iv: blob.money_iv,
+              ciphertext: blob.encrypted_money,
+            }),
+          )
+          withFinancialData(data, money)
         }
       } else {
         setNotice('Exported without financial values (vault locked). Unlock to include them.')

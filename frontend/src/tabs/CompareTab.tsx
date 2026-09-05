@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import type { Meta, Project, ProjectSummary } from '../types'
@@ -34,8 +34,13 @@ export default function CompareTab({
   const navigate = useNavigate()
   const [kpis, setKpis] = useState<ScenarioKpis[] | null>(null)
   const [error, setError] = useState('')
+  /* Switching scenarios while a comparison is still loading must not let the
+   * slower response overwrite the newer one. */
+  const loadSeq = useRef(0)
 
   const load = useCallback(async () => {
+    const seq = loadSeq.current + 1
+    loadSeq.current = seq
     setError('')
     try {
       const family = await api.listScenarios(project.id)
@@ -91,9 +96,10 @@ export default function CompareTab({
           perYear,
         })
       }
+      if (seq !== loadSeq.current) return
       setKpis(results)
     } catch (e) {
-      setError((e as Error).message)
+      if (seq === loadSeq.current) setError((e as Error).message)
     }
   }, [project.id, vault, meta])
 

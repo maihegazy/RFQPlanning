@@ -2,8 +2,10 @@ import { MemoryRouter } from 'react-router-dom'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import ResourceGrid from './components/ResourceGrid'
 import RoleModal from './components/RoleModal'
 import ProjectsPage from './pages/ProjectsPage'
+import HardwareTab from './tabs/HardwareTab'
 import InfoTab from './tabs/InfoTab'
 import type { Feature, Meta, Project, Role } from './types'
 
@@ -15,6 +17,9 @@ const apiMock = vi.hoisted(() => ({
   getMeta: vi.fn(),
   putMoneyBlob: vi.fn(),
   deleteProject: vi.fn(),
+  getHardwarePlan: vi.fn(),
+  listHardwareCatalog: vi.fn(),
+  updateResourceGrid: vi.fn(),
 }))
 
 vi.mock('./api', () => ({ api: apiMock }))
@@ -169,5 +174,72 @@ describe('known frontend regressions', () => {
     })
 
     expect(apiMock.importProject).not.toHaveBeenCalled()
+  })
+
+  it('offers the catalog picker placeholder once and surfaces plan warnings', async () => {
+    apiMock.getHardwarePlan.mockResolvedValue({
+      items: [],
+      per_year: {},
+      grand_total: 0,
+      warnings: ['Old rig is planned for 2030, outside the project years 2026-2026'],
+    })
+    apiMock.listHardwareCatalog.mockResolvedValue([])
+
+    let renderer!: ReactTestRenderer
+    await act(async () => {
+      renderer = create(<HardwareTab project={project(1, 'Hardware')} meta={meta} />)
+      await Promise.resolve()
+    })
+
+    const placeholders = renderer.root
+      .findAllByType('option')
+      .filter((option) => option.props.children === '+ Add from catalog…')
+    expect(placeholders).toHaveLength(1)
+    expect(JSON.stringify(renderer.toJSON())).toContain('Old rig is planned for 2030')
+  })
+
+  it('re-enables the grid save button after a successful save', async () => {
+    const currentProject = project(1, 'Grid project')
+    currentProject.features = [
+      {
+        id: 10,
+        project_id: 1,
+        name: 'Feature',
+        roles: [
+          {
+            id: 20,
+            feature_id: 10,
+            name: 'Developer',
+            location: 'BCC',
+            level: 'Senior',
+            ftes: 1,
+            use_advanced_allocation: false,
+            allocations: [],
+          },
+        ],
+      },
+    ]
+    apiMock.updateResourceGrid.mockResolvedValue(currentProject)
+
+    let renderer!: ReactTestRenderer
+    act(() => {
+      renderer = create(<ResourceGrid project={currentProject} onChanged={vi.fn()} />)
+    })
+    const cell = renderer.root.findAllByType('input').find((input) => input.props.type === 'number')
+    act(() => cell!.props.onChange({ target: { value: '1.5' } }))
+
+    const saveButton = () =>
+      renderer.root
+        .findAllByType('button')
+        .find((button) => String(button.props.children).startsWith('Save'))
+    expect(saveButton()!.props.disabled).toBe(false)
+    await act(async () => {
+      await saveButton()!.props.onClick()
+    })
+    expect(apiMock.updateResourceGrid).toHaveBeenCalledTimes(1)
+    // The parent re-fetches the project and keeps the grid mounted: the button
+    // must not stay stuck on "Saving…".
+    const buttons = renderer.root.findAllByType('button').map((b) => String(b.props.children))
+    expect(buttons.some((label) => label.startsWith('Saving'))).toBe(false)
   })
 })

@@ -175,6 +175,8 @@ export interface HardwarePlan {
   items: HardwareItem[]
   per_year: Record<string, number>
   grand_total: number
+  /** Rows planned for a year the project no longer covers. */
+  warnings: string[]
 }
 
 export interface PortfolioCapacity {
@@ -259,6 +261,9 @@ export interface HwAsset extends HwAssetInput {
   /** Server-computed depreciation keyed by calendar year, e.g. `{"2025": 1192.89}`. */
   per_year: Record<string, number>
   total: number
+  /** Why the row counts towards no year (a missing date, an unknown purchase
+   *  type, a date outside 1990-2100), or null when it counts. */
+  uncounted_reason: string | null
 }
 
 export interface HwLicenseInput {
@@ -287,6 +292,7 @@ export interface HwLicense extends HwLicenseInput {
   hw_project_id: number
   per_year: Record<string, number>
   total: number
+  uncounted_reason: string | null
 }
 
 /** "Special Cases Budget": a manual delta added on top of a year's computed cost. */
@@ -350,6 +356,8 @@ export interface HwSummary {
   dashboard: HwDashboard
   asset_count: number
   license_count: number
+  /** Register rows the engine could not count (see `HwAsset.uncounted_reason`). */
+  uncounted_rows: number
   adjustments: HwAdjustment[]
 }
 
@@ -364,6 +372,7 @@ export interface HwOverview {
   project_count: number
   asset_count: number
   license_count: number
+  uncounted_rows: number
 }
 
 /** Result of a `dry_run=true` import: nothing has been written yet. */
@@ -374,9 +383,16 @@ export interface HwImportPreview {
   sheets_found: string[]
 }
 
+/** `append` adds the workbook's rows to the register; `replace` first clears
+ *  every register whose sheet the workbook carries. */
+export type HwImportMode = 'append' | 'replace'
+
 export interface HwImportResult {
   created_assets: number
   created_licenses: number
+  /** Rows removed first when the import replaced a register. */
+  replaced_assets: number
+  replaced_licenses: number
   warnings: string[]
 }
 

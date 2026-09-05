@@ -1,30 +1,10 @@
 import { useMemo, useState } from 'react'
 import { Check, Ellipsis, Plus, Trash2, X } from 'lucide-react'
 import type { HardwareCatalogItem, HwAssetInput, HwMeta, HwPurchaseType } from '../types'
-import { assetYearCost, parseIsoDate } from '../hardware/depreciation'
+import { assetYearCost, assetUncountedReason, parseIsoDate } from '../hardware/depreciation'
+import { BLANK_ASSET, isBlankAsset } from '../hardware/registers'
 import { formatEuro } from '../utils'
 import { Button, EmptyState, Input, Label, Modal, Select } from './ui'
-
-/** A fresh register line: nothing bought, nothing known yet. */
-const BLANK_ASSET: HwAssetInput = {
-  asset_tag: '',
-  company: '',
-  name: '',
-  serial: '',
-  model: '',
-  category: '',
-  status: '',
-  supplier: '',
-  purchase_date: null,
-  purchase_cost: 0,
-  order_number: '',
-  eol_date: null,
-  assigned_employee: '',
-  sw_license: '',
-  purchased_by: '',
-  purchase_type: 'Not Purchased',
-  catalog_item_id: null,
-}
 
 /** Inline-editable columns before the computed per-year block, so the footer
  *  label knows how far to span. */
@@ -69,6 +49,18 @@ function withCurrent(options: readonly string[], current: string): string[] {
 
 function isPlanned(purchaseType: string): boolean {
   return purchaseType.trim().toUpperCase() === 'PLANNED PURCHASE'
+}
+
+/** The row counts towards no year; the title says why, in the server's words. */
+function UncountedPill({ reason }: { reason: string }) {
+  return (
+    <span
+      title={reason}
+      className="ml-2 rounded-full border border-rose-900 bg-rose-950 px-2 py-0.5 text-[11px] font-medium whitespace-nowrap text-rose-300"
+    >
+      not counted
+    </span>
+  )
 }
 
 function PlannedPill() {
@@ -261,33 +253,38 @@ export function HwAssetTable({ rows, years, meta, catalog, onChange }: HwAssetTa
       const purchaseYear = parseIsoDate(row.purchase_date)?.getFullYear() ?? null
       // A planned row costs nothing yet, so the engine returns zeros for it; the
       // planned figure is instead shown against the year it is planned for.
-      const cells = years.map((year) =>
-        planned
-          ? purchaseYear === year
-            ? round2(row.purchase_cost)
-            : 0
-          : round2(assetYearCost(row, year)),
+      // Cells are kept at full precision and rounded only for display, so the
+      // footer and the row total agree with the server's summary to the cent.
+      const raw = years.map((year) =>
+        planned ? (purchaseYear === year ? row.purchase_cost : 0) : assetYearCost(row, year),
       )
       return {
         planned,
-        cells,
+        raw,
+        cells: raw.map(round2),
         // A planned row's total is its whole planned cost even when the purchase
         // year falls outside the shown span, so the Total column always adds up.
-        total: planned
-          ? round2(row.purchase_cost)
-          : round2(cells.reduce((sum, value) => sum + value, 0)),
+        total: round2(planned ? row.purchase_cost : raw.reduce((sum, value) => sum + value, 0)),
+        uncountedReason: planned ? null : assetUncountedReason(row),
+        unnamed: row.name.trim() === '' && !isBlankAsset(row),
       }
     })
     const sumYear = (index: number, planned: boolean) =>
       round2(
         perRow.reduce(
-          (sum, entry) => (entry.planned === planned ? sum + entry.cells[index] : sum),
+          (sum, entry) => (entry.planned === planned ? sum + entry.raw[index] : sum),
           0,
         ),
       )
     const sumTotal = (planned: boolean) =>
       round2(
-        perRow.reduce((sum, entry) => (entry.planned === planned ? sum + entry.total : sum), 0),
+        perRow.reduce(
+          (sum, entry) =>
+            entry.planned === planned
+              ? sum + (planned ? entry.total : entry.raw.reduce((s, v) => s + v, 0))
+              : sum,
+          0,
+        ),
       )
     return {
       perRow,
@@ -387,8 +384,13 @@ export function HwAssetTable({ rows, years, meta, catalog, onChange }: HwAssetTa
                         aria-label="Asset name"
                         placeholder="e.g. Lauterbach debugger"
                         value={row.name}
+                        aria-invalid={computed.unnamed || undefined}
+                        className={computed.unnamed ? 'border-rose-700 focus:border-rose-500' : ''}
                         onChange={(e) => patch(index, { name: e.target.value })}
                       />
+                      {computed.unnamed && (
+                        <p className="mt-1 text-[11px] text-rose-300">Name needed to save</p>
+                      )}
                     </div>
                   </td>
                   <td className="py-2 pr-2">
@@ -480,6 +482,9 @@ export function HwAssetTable({ rows, years, meta, catalog, onChange }: HwAssetTa
                   <td className="py-2 pr-2 pl-2 pt-4 text-right font-medium tabular-nums whitespace-nowrap">
                     <CostCell value={computed.total} planned={computed.planned} />
                     {computed.planned && <PlannedPill />}
+                    {computed.uncountedReason !== null && (
+                      <UncountedPill reason={computed.uncountedReason} />
+                    )}
                   </td>
                   <td className="py-2 pt-3.5 text-right whitespace-nowrap">
                     {confirmIndex === index ? (

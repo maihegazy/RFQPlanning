@@ -17,6 +17,16 @@
 /** The working document amortises every lease over 36 months, whatever its term. */
 export const LEASING_MONTHS = 36
 
+/**
+ * Dates outside this window are typos, not data — the mirror of the server's
+ * `DATE_WINDOW_YEARS`. Such a date neither widens the year span nor counts
+ * towards any year; `uncountedReason` names the row instead.
+ */
+export const FIRST_YEAR = 1990
+export const LAST_YEAR = 2100
+
+const KNOWN_KINDS = ['LEASING', 'PURCHASE', 'PLANNED PURCHASE', 'NOT PURCHASED']
+
 /** Widest year span `yearSpan` will report, so one mistyped date cannot render
  *  a thousand columns. */
 export const MAX_SPAN_YEARS = 40
@@ -88,6 +98,65 @@ function round2(value: number): number {
   return Math.round(value * 100) / 100
 }
 
+/** `UPPER(TRIM(...))` — the sheet compares purchase types case-insensitively. */
+function kindOf(kind: string): string {
+  return (kind ?? '').trim().toUpperCase()
+}
+
+export function inWindow(date: Date): boolean {
+  const year = date.getFullYear()
+  return FIRST_YEAR <= year && year <= LAST_YEAR
+}
+
+/**
+ * Why a row contributes nothing to any year, or null when it counts — the same
+ * words the server puts in `uncounted_reason`, so a row reads the same while it
+ * is being edited and after it is saved.
+ *
+ * A row that is deliberately free of cost (Not Purchased, or a zero amount) is
+ * not a problem and gets null too.
+ */
+export function uncountedReason(
+  kind: string,
+  purchaseDate: DateInput,
+  endDate: DateInput,
+  cost: number,
+): string | null {
+  const t = kindOf(kind)
+  if (t === '') return 'no purchase type'
+  if (!KNOWN_KINDS.includes(t)) return `unknown purchase type '${kind.trim()}'`
+  if (t === 'NOT PURCHASED' || (Number(cost) || 0) === 0) return null
+
+  const purchase = toDate(purchaseDate)
+  if (purchase === null) return 'no purchase date'
+  if (!inWindow(purchase)) return `purchase date outside ${FIRST_YEAR}-${LAST_YEAR}`
+  if (t !== 'LEASING') return null
+
+  const end = toDate(endDate)
+  if (end === null) return 'no end date'
+  if (!inWindow(end)) return `end date outside ${FIRST_YEAR}-${LAST_YEAR}`
+  if (end < purchase) return 'end date before purchase date'
+  return null
+}
+
+export function assetUncountedReason(asset: DepreciableAsset): string | null {
+  return uncountedReason(
+    asset.purchase_type,
+    asset.purchase_date,
+    asset.eol_date,
+    asset.purchase_cost,
+  )
+}
+
+export function licenseUncountedReason(license: DepreciableLicense): string | null {
+  return uncountedReason(
+    license.depreciation,
+    license.purchase_date,
+    license.termination_date,
+    license.purchase_cost,
+  )
+}
+
 /**
  * Whole months from `a` to `b`, rolling back when `b` falls earlier in the
  * month than `a` — Jan 31 to Feb 28 is zero complete months, not one.
@@ -115,10 +184,13 @@ export function yearCost(
   cost: number,
 ): number {
   const purchase = toDate(purchaseDate)
-  switch (kind.trim().toUpperCase()) {
+  switch (kindOf(kind)) {
     case 'LEASING': {
       const end = toDate(endDate)
       if (!purchase || !end) return 0
+      // A date outside the window is a typo (see `uncountedReason`): the row is
+      // flagged instead of accruing for two hundred years.
+      if (!inWindow(purchase) || !inWindow(end)) return 0
       const janFirst = new Date(year, 0, 1)
       const decLast = new Date(year, 11, 31)
       const start = purchase > janFirst ? purchase : janFirst
@@ -128,7 +200,8 @@ export function yearCost(
       return (cost / LEASING_MONTHS) * (completeMonths(start, stop) + 1)
     }
     case 'PURCHASE':
-      return purchase !== null && purchase.getFullYear() === year ? cost : 0
+      if (purchase === null || !inWindow(purchase)) return 0
+      return purchase.getFullYear() === year ? cost : 0
     default:
       // Planned Purchase and Not Purchased have not cost anything yet.
       return 0
@@ -158,9 +231,9 @@ export function perYear(
 
 /**
  * The contiguous run of years the given rows touch, from the earliest to the
- * latest purchase, end-of-life or termination date. Falls back to the current
- * year when the rows carry no dates at all; `extraYears` forces a project's own
- * start/end years into the span.
+ * latest purchase, end-of-life or termination date inside the window. Falls back
+ * to the current year when the rows carry no usable dates at all; `extraYears`
+ * forces a project's own start/end years into the span.
  */
 export function yearSpan(rows: DepreciationRow[], extraYears: number[] = []): number[] {
   let min = Number.POSITIVE_INFINITY
@@ -173,11 +246,12 @@ export function yearSpan(rows: DepreciationRow[], extraYears: number[] = []): nu
   for (const row of rows) {
     for (const value of [row.purchase_date, row.eol_date, row.termination_date]) {
       const date = parseIsoDate(value ?? null)
-      if (date !== null) note(date.getFullYear())
+      // One mistyped 0225 must not hide the real 2025 rows behind 1800 columns.
+      if (date !== null && inWindow(date)) note(date.getFullYear())
     }
   }
   for (const year of extraYears) {
-    if (Number.isFinite(year)) note(Math.trunc(year))
+    if (Number.isFinite(year) && FIRST_YEAR <= year && year <= LAST_YEAR) note(Math.trunc(year))
   }
 
   if (min === Number.POSITIVE_INFINITY) return [new Date().getFullYear()]

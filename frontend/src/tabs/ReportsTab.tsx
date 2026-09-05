@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import type { Meta, PivotTable, Project, RateConfig, ResourcePlan } from '../types'
 import { Button, Card, ErrorBanner, Spinner } from '../components/ui'
@@ -21,21 +21,34 @@ export default function ReportsTab({ project, meta }: { project: Project; meta: 
   const [money, setMoney] = useState<MoneyConfig | null>(null)
   const [budget, setBudget] = useState<BudgetPlan | null>(null)
   const [error, setError] = useState('')
+  /* Switching scenarios while a load is in flight must not let the slower
+   * response render the previous project's report. */
+  const moneySeq = useRef(0)
 
   useEffect(() => {
+    let cancelled = false
     setResources(null)
+    setRates(null)
     setError('')
     Promise.all([api.getResourcePlan(project.id), api.getRates(project.id)])
       .then(([r, rc]) => {
+        if (cancelled) return
         setResources(r)
         setRates(rc)
       })
-      .catch((e) => setError(e.message))
+      .catch((e) => {
+        if (!cancelled) setError(e.message)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [project.id])
 
   // Money sections are computed locally after decrypting the blob
   const computeMoney = useCallback(async () => {
     if (vault.status !== 'unlocked' || !rates) return
+    const seq = moneySeq.current + 1
+    moneySeq.current = seq
     try {
       const blob = await api.getMoneyBlob(project.id)
       const config =
@@ -47,10 +60,11 @@ export default function ReportsTab({ project, meta }: { project: Project; meta: 
               }),
             )
           : emptyMoneyConfig(meta.locations, meta.levels, meta.ticket_sizes)
+      if (seq !== moneySeq.current) return
       setMoney(config)
       setBudget(computeBudgetPlan(project, config, rates))
     } catch (e) {
-      setError((e as Error).message)
+      if (seq === moneySeq.current) setError((e as Error).message)
     }
   }, [project, rates, vault, meta])
 

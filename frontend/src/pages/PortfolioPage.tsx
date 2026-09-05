@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import type { PortfolioCapacity, ProjectSummary } from '../types'
@@ -32,13 +32,25 @@ export default function PortfolioPage() {
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null)
   const [moneyRows, setMoneyRows] = useState<ProjectMoney[] | null>(null)
   const [error, setError] = useState('')
+  /* Toggling two filters quickly, or unlocking while the money is still being
+   * computed, must not let the slower response overwrite the newer one. */
+  const moneySeq = useRef(0)
 
   useEffect(() => {
+    let cancelled = false
     setCapacity(null)
+    // Every status deselected means no status, which the API takes as an empty list.
     api
       .getPortfolioCapacity(statuses)
-      .then(setCapacity)
-      .catch((e) => setError(e.message))
+      .then((next) => {
+        if (!cancelled) setCapacity(next)
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e.message)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [statuses])
 
   useEffect(() => {
@@ -50,6 +62,8 @@ export default function PortfolioPage() {
 
   const computeMoney = useCallback(async () => {
     if (vault.status !== 'unlocked' || !projects) return
+    const seq = moneySeq.current + 1
+    moneySeq.current = seq
     try {
       const meta = await api.getMeta()
       const rows: ProjectMoney[] = []
@@ -79,9 +93,10 @@ export default function PortfolioPage() {
           weighted: revenue * (STATUS_WEIGHT[summary.status]?.(summary) ?? 0),
         })
       }
+      if (seq !== moneySeq.current) return
       setMoneyRows(rows)
     } catch (e) {
-      setError((e as Error).message)
+      if (seq === moneySeq.current) setError((e as Error).message)
     }
   }, [projects, vault])
 

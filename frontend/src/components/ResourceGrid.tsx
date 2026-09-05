@@ -112,6 +112,9 @@ export default function ResourceGrid({
       onChanged()
     } catch (e) {
       setError((e as Error).message)
+    } finally {
+      // The parent re-fetches the project but keeps this grid mounted, so the
+      // button has to come back on its own.
       setSaving(false)
     }
   }

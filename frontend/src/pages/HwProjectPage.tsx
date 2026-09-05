@@ -8,6 +8,7 @@ import type {
   HwAdjustment,
   HwAsset,
   HwAssetInput,
+  HwImportResult,
   HwLicense,
   HwLicenseInput,
   HwMeta,
@@ -18,7 +19,15 @@ import type {
   HwSummary,
   HwYearRow,
 } from '../types'
-import { yearSpan } from '../hardware/depreciation'
+import { FIRST_YEAR, LAST_YEAR, yearSpan } from '../hardware/depreciation'
+import {
+  BLANK_ASSET,
+  BLANK_LICENSE,
+  describeRows,
+  isBlankAsset,
+  isBlankLicense,
+  planSave,
+} from '../hardware/registers'
 import { formatEuro, formatNumber } from '../utils'
 import {
   Button,
@@ -50,49 +59,6 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'assets', label: 'Assets' },
   { key: 'licenses', label: 'Licenses' },
 ]
-
-/** A fresh asset line: nothing bought, nothing known yet. */
-const BLANK_ASSET: HwAssetInput = {
-  asset_tag: '',
-  company: '',
-  name: '',
-  serial: '',
-  model: '',
-  category: '',
-  status: '',
-  supplier: '',
-  purchase_date: null,
-  purchase_cost: 0,
-  order_number: '',
-  eol_date: null,
-  assigned_employee: '',
-  sw_license: '',
-  purchased_by: '',
-  purchase_type: 'Not Purchased',
-  catalog_item_id: null,
-}
-
-/** A fresh license line: one seat, nothing bought, nothing known yet. */
-const BLANK_LICENSE: HwLicenseInput = {
-  license_tag: '',
-  company: '',
-  name: '',
-  product_key: '',
-  expiration_date: null,
-  licensed_to_email: '',
-  category: '',
-  supplier: '',
-  manufacturer: '',
-  quantity: 1,
-  purchase_date: null,
-  termination_date: null,
-  depreciation: 'Not Purchased',
-  maintained: false,
-  purchase_cost: 0,
-  purchase_order_number: '',
-  notes: '',
-  catalog_item_id: null,
-}
 
 /** `Button` renders a <button>; the export has to be a real link so the browser
  *  performs the download itself instead of buffering the workbook through fetch.
@@ -163,6 +129,19 @@ function adjustmentList(map: AdjustmentMap): HwAdjustment[] {
 
 function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? '' : 's'}`
+}
+
+/** "Imported 3 assets and 2 licenses, replacing 5 assets." */
+function describeImport(result: HwImportResult): string {
+  const replaced = [
+    result.replaced_assets > 0 ? plural(result.replaced_assets, 'asset') : '',
+    result.replaced_licenses > 0 ? plural(result.replaced_licenses, 'license') : '',
+  ].filter((part) => part !== '')
+  const base = `Imported ${plural(result.created_assets, 'asset')} and ${plural(
+    result.created_licenses,
+    'license',
+  )}`
+  return replaced.length > 0 ? `${base}, replacing ${replaced.join(' and ')}.` : `${base}.`
 }
 
 function Money({ value, muted = false }: { value: number; muted?: boolean }) {
@@ -941,10 +920,19 @@ export default function HwProjectPage() {
   }
 
   const saveAssets = async () => {
+    const plan = planSave(assets, isBlankAsset)
+    if (plan.unnamed.length > 0) {
+      setError(
+        `Every asset needs a name before the register can be saved: ${describeRows(
+          plan.unnamed,
+        )} of the assets register ${plan.unnamed.length === 1 ? 'has' : 'have'} none.`,
+      )
+      return
+    }
     setSaving('assets')
     setError('')
     try {
-      const saved = await api.replaceHwAssets(id, assets)
+      const saved = await api.replaceHwAssets(id, plan.rows)
       const rows = saved.map(toAssetInput)
       setAssets(rows)
       setAssetBaseline(JSON.stringify(rows))
@@ -958,10 +946,19 @@ export default function HwProjectPage() {
   }
 
   const saveLicenses = async () => {
+    const plan = planSave(licenses, isBlankLicense)
+    if (plan.unnamed.length > 0) {
+      setError(
+        `Every license needs a name before the register can be saved: ${describeRows(
+          plan.unnamed,
+        )} of the licenses register ${plan.unnamed.length === 1 ? 'has' : 'have'} none.`,
+      )
+      return
+    }
     setSaving('licenses')
     setError('')
     try {
-      const saved = await api.replaceHwLicenses(id, licenses)
+      const saved = await api.replaceHwLicenses(id, plan.rows)
       const rows = saved.map(toLicenseInput)
       setLicenses(rows)
       setLicenseBaseline(JSON.stringify(rows))
@@ -1178,6 +1175,23 @@ export default function HwProjectPage() {
 
       {tab === 'summary' && (
         <div className="space-y-6">
+          {noticeFor('summary') !== '' && !adjustmentsDirty && (
+            <div className="rounded-lg border border-emerald-800 bg-emerald-950/50 px-4 py-2 text-sm text-emerald-300">
+              {noticeFor('summary')}
+            </div>
+          )}
+          {summary.uncounted_rows > 0 && (
+            <div className="flex items-start gap-2 rounded-lg border border-rose-900 bg-rose-950/40 px-4 py-3 text-sm text-rose-200">
+              <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+              <p>
+                {plural(summary.uncounted_rows, 'register row')}{' '}
+                {summary.uncounted_rows === 1 ? 'counts' : 'count'} towards no year — a missing
+                purchase or end date, an unknown purchase type, or a date outside {FIRST_YEAR}–
+                {LAST_YEAR}. Such rows carry a <span className="font-medium">not counted</span> mark
+                in the registers; fix them there so the totals above include them.
+              </p>
+            </div>
+          )}
           <div className="grid gap-4 sm:grid-cols-2">
             <button
               onClick={() => selectTab('assets')}
@@ -1208,10 +1222,6 @@ export default function HwProjectPage() {
                 {adjustmentsDirty ? (
                   <span className="self-center rounded-full border border-amber-800 bg-amber-950 px-2.5 py-0.5 text-xs font-medium text-amber-300">
                     Unsaved changes
-                  </span>
-                ) : noticeFor('summary') !== '' ? (
-                  <span className="self-center text-xs text-emerald-300">
-                    {noticeFor('summary')}
                   </span>
                 ) : null}
                 {adjustmentsDirty && (
@@ -1328,8 +1338,8 @@ export default function HwProjectPage() {
         <HwImportDialog
           projectId={id}
           onClose={() => setDialog(null)}
-          onImported={() => {
-            setNotice(null)
+          onImported={(result) => {
+            setNotice({ scope: 'summary', text: describeImport(result) })
             load()
           }}
         />

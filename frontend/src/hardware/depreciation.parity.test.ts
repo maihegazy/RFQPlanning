@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { perYear } from './depreciation'
+import { perYear, uncountedReason } from './depreciation'
 
 /**
  * The depreciation rule exists twice — here for live feedback while a register
@@ -95,6 +95,82 @@ const CASES = [
     cost: 0.01,
     python: { '2026': 0.01 },
   },
+  // Dates outside the 1990-2100 window are typos: the row counts nowhere.
+  {
+    kind: 'Leasing',
+    purchase: '0225-07-02',
+    end: '2028-07-02',
+    cost: 7157.35,
+    python: {},
+  },
+  {
+    kind: 'Leasing',
+    purchase: '2025-07-02',
+    end: '2205-07-02',
+    cost: 7157.35,
+    python: {},
+  },
+  {
+    kind: 'Purchase',
+    purchase: '0225-07-02',
+    end: null,
+    cost: 9877,
+    python: {},
+  },
+  {
+    kind: 'Leasing',
+    purchase: '2026-03-01',
+    end: '2025-03-01',
+    cost: 1200,
+    python: {},
+  },
+]
+
+/** `uncounted_reason()` of the Python engine for the same inputs, verbatim. */
+const REASON_CASES: {
+  kind: string
+  purchase: string | null
+  end: string | null
+  cost: number
+  python: string | null
+}[] = [
+  { kind: '', purchase: null, end: null, cost: 100, python: 'no purchase type' },
+  {
+    kind: 'Rental',
+    purchase: '2026-01-01',
+    end: null,
+    cost: 100,
+    python: "unknown purchase type 'Rental'",
+  },
+  { kind: 'Not Purchased', purchase: null, end: null, cost: 100, python: null },
+  { kind: 'Purchase', purchase: null, end: null, cost: 0, python: null },
+  { kind: 'Purchase', purchase: null, end: null, cost: 100, python: 'no purchase date' },
+  {
+    kind: 'Purchase',
+    purchase: '0225-01-01',
+    end: null,
+    cost: 100,
+    python: 'purchase date outside 1990-2100',
+  },
+  { kind: 'Purchase', purchase: '2026-01-01', end: null, cost: 100, python: null },
+  { kind: 'Leasing', purchase: '2026-01-01', end: null, cost: 100, python: 'no end date' },
+  {
+    kind: 'Leasing',
+    purchase: '2026-01-01',
+    end: '2205-01-01',
+    cost: 100,
+    python: 'end date outside 1990-2100',
+  },
+  {
+    kind: 'Leasing',
+    purchase: '2026-01-01',
+    end: '2025-01-01',
+    cost: 100,
+    python: 'end date before purchase date',
+  },
+  { kind: 'Leasing', purchase: '2026-01-01', end: '2029-01-01', cost: 100, python: null },
+  { kind: 'Planned Purchase', purchase: '2026-01-01', end: null, cost: 100, python: null },
+  { kind: ' leasing ', purchase: '2026-01-01', end: '2029-01-01', cost: 100, python: null },
 ]
 
 const YEARS = Array.from({ length: 9 }, (_, i) => 2022 + i)
@@ -111,6 +187,14 @@ describe('the TypeScript engine matches the Python engine', () => {
       for (const year of YEARS.map(String)) {
         if (!paying.includes(year)) expect(actual[year]).toBe(0)
       }
+    })
+  }
+})
+
+describe('uncountedReason matches the Python engine word for word', () => {
+  for (const { kind, purchase, end, cost, python } of REASON_CASES) {
+    it(`${kind || 'no type'} ${purchase ?? 'no date'} to ${end ?? 'no date'} at ${cost}`, () => {
+      expect(uncountedReason(kind, purchase, end, cost)).toBe(python)
     })
   }
 })

@@ -8,6 +8,7 @@ import type {
   HwAdjustment,
   HwAsset,
   HwAssetInput,
+  HwImportMode,
   HwImportPreview,
   HwImportResult,
   HwLicense,
@@ -43,6 +44,34 @@ class ApiError extends Error {
   }
 }
 
+/** One entry of a FastAPI validation error: where it happened and what was wrong. */
+interface ValidationEntry {
+  loc?: unknown[]
+  msg?: string
+}
+
+function isValidationEntry(value: unknown): value is ValidationEntry {
+  return value !== null && typeof value === 'object' && ('msg' in value || 'loc' in value)
+}
+
+/**
+ * A readable sentence for a validation error the server describes as a list of
+ * `{loc, msg, type}` entries: "start_month: Input should be less than or equal
+ * to 12" rather than the raw JSON.
+ */
+export function describeDetail(raw: unknown): string | null {
+  if (typeof raw === 'string') return raw
+  if (!Array.isArray(raw)) return raw ? JSON.stringify(raw) : null
+  const lines = raw.map((entry) => {
+    if (!isValidationEntry(entry)) return JSON.stringify(entry)
+    // The first segment is only "body" or "query"; the rest names the field.
+    const path = (entry.loc ?? []).slice(1).map(String).join('.')
+    const message = entry.msg ?? 'invalid value'
+    return path === '' ? message : `${path}: ${message}`
+  })
+  return lines.length > 0 ? lines.join('; ') : null
+}
+
 /** The single place a failed Response becomes an ApiError. No-op while `resp.ok`. */
 async function throwForStatus(resp: Response): Promise<void> {
   if (resp.ok) return
@@ -50,9 +79,7 @@ async function throwForStatus(resp: Response): Promise<void> {
   try {
     const body: unknown = await resp.json()
     if (body !== null && typeof body === 'object' && 'detail' in body) {
-      const raw = body.detail
-      if (typeof raw === 'string') detail = raw
-      else if (raw) detail = JSON.stringify(raw)
+      detail = describeDetail(body.detail) ?? detail
     }
   } catch {
     /* keep statusText */
@@ -76,28 +103,33 @@ async function importHwWorkbook(
   projectId: number,
   file: File,
   dryRun: true,
+  mode?: HwImportMode,
 ): Promise<HwImportPreview>
 async function importHwWorkbook(
   projectId: number,
   file: File,
   dryRun: false,
+  mode?: HwImportMode,
 ): Promise<HwImportResult>
 async function importHwWorkbook(
   projectId: number,
   file: File,
   dryRun: boolean,
+  mode?: HwImportMode,
 ): Promise<HwImportPreview | HwImportResult>
 async function importHwWorkbook(
   projectId: number,
   file: File,
   dryRun: boolean,
+  mode: HwImportMode = 'append',
 ): Promise<HwImportPreview | HwImportResult> {
   const form = new FormData()
   form.append('file', file)
-  const resp = await fetch(
-    `${BASE}/api/hw/projects/${projectId}/import?dry_run=${dryRun ? 'true' : 'false'}`,
-    { method: 'POST', body: form },
-  )
+  const params = new URLSearchParams({ dry_run: dryRun ? 'true' : 'false', mode })
+  const resp = await fetch(`${BASE}/api/hw/projects/${projectId}/import?${params}`, {
+    method: 'POST',
+    body: form,
+  })
   await throwForStatus(resp)
   return resp.json()
 }
@@ -129,9 +161,11 @@ export const api = {
     request<ProjectSummary[]>(`/api/projects/${projectId}/scenarios`),
   promoteScenario: (projectId: number) =>
     request<ProjectSummary>(`/api/projects/${projectId}/promote`, { method: 'POST' }),
+  /** Omitting `statuses` means every status; an empty list means none, so a
+   *  page whose user deselected every filter shows nothing rather than all. */
   getPortfolioCapacity: (statuses?: string[]) =>
     request<PortfolioCapacity>(
-      `/api/portfolio/capacity${statuses?.length ? `?statuses=${statuses.join(',')}` : ''}`,
+      `/api/portfolio/capacity${statuses ? `?statuses=${statuses.join(',')}` : ''}`,
     ),
   createProject: (data: Partial<ProjectSummary> & { template_id?: string | null }) =>
     request<Project>('/api/projects', { method: 'POST', body: JSON.stringify(data) }),

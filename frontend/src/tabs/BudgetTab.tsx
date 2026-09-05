@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import type { Meta, Project, RateConfig } from '../types'
 import { Button, Card, ErrorBanner, Input, Label, Spinner } from '../components/ui'
@@ -16,30 +16,49 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  /* Switching scenarios while a load is in flight must not let the slower
+   * response overwrite the newer project's figures. */
+  const moneySeq = useRef(0)
 
   useEffect(() => {
+    let cancelled = false
+    setRates(null)
+    setSaved(false)
+    setError('')
     api
       .getRates(project.id)
-      .then(setRates)
-      .catch((e) => setError(e.message))
+      .then((next) => {
+        if (!cancelled) setRates(next)
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e.message)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [project.id])
 
   const loadMoney = useCallback(async () => {
     if (vault.status !== 'unlocked') return
+    const seq = moneySeq.current + 1
+    moneySeq.current = seq
+    const stale = () => seq !== moneySeq.current
     try {
       const blob = await api.getMoneyBlob(project.id)
+      if (stale()) return
       if (blob.encrypted_money && blob.money_iv) {
-        setMoney(
-          normalizeMoneyConfig(
-            await vault.decrypt<MoneyConfig>({
-              iv: blob.money_iv,
-              ciphertext: blob.encrypted_money,
-            }),
-          ),
+        const decrypted = normalizeMoneyConfig(
+          await vault.decrypt<MoneyConfig>({
+            iv: blob.money_iv,
+            ciphertext: blob.encrypted_money,
+          }),
         )
+        if (stale()) return
+        setMoney(decrypted)
       } else {
         // No blob yet — check for pre-encryption plaintext to migrate
         const legacy = await api.getLegacyMoney(project.id)
+        if (stale()) return
         const base = emptyMoneyConfig(meta.locations, meta.levels, meta.ticket_sizes)
         if (legacy.has_data) {
           setMoney({
@@ -60,7 +79,7 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
         }
       }
     } catch (e) {
-      setError((e as Error).message)
+      if (!stale()) setError((e as Error).message)
     }
   }, [project.id, vault, meta])
 

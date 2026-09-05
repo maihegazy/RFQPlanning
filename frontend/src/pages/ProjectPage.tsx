@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
 import type { Meta, Project, ProjectSummary } from '../types'
@@ -103,25 +103,51 @@ export default function ProjectPage() {
   const [meta, setMeta] = useState<Meta | null>(null)
   const [error, setError] = useState('')
   const [showSaveTemplate, setShowSaveTemplate] = useState(false)
+  /* Switching scenarios while the previous one is still loading must not let
+   * the slower response show up under the newer URL. */
+  const loadSeq = useRef(0)
 
   const reload = useCallback(() => {
+    const seq = loadSeq.current + 1
+    loadSeq.current = seq
     api
       .getProject(id)
-      .then(setProject)
-      .catch((e) => setError(e.message))
+      .then((next) => {
+        if (seq === loadSeq.current) setProject(next)
+      })
+      .catch((e) => {
+        if (seq === loadSeq.current) setError(e.message)
+      })
     api
       .listScenarios(id)
-      .then(setFamily)
-      .catch(() => setFamily([]))
+      .then((next) => {
+        if (seq === loadSeq.current) setFamily(next)
+      })
+      .catch(() => {
+        if (seq === loadSeq.current) setFamily([])
+      })
   }, [id])
 
   useEffect(() => {
+    setProject(null)
+    setError('')
     reload()
+  }, [reload])
+
+  useEffect(() => {
+    let cancelled = false
     api
       .getMeta()
-      .then(setMeta)
-      .catch((e) => setError(e.message))
-  }, [reload])
+      .then((next) => {
+        if (!cancelled) setMeta(next)
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e.message)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const newScenario = async () => {
     if (!project) return

@@ -182,6 +182,16 @@ function Kpis({ overview }: { overview: HwOverview }) {
         <CountTile Icon={HardDrive} label="Assets" value={overview.asset_count} />
         <CountTile Icon={KeyRound} label="Licenses" value={overview.license_count} />
       </div>
+      {overview.uncounted_rows > 0 && (
+        <p className="mb-6 flex items-start gap-2 rounded-lg border border-rose-900 bg-rose-950/40 px-4 py-2.5 text-sm text-rose-200">
+          <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            {overview.uncounted_rows} register row{overview.uncounted_rows === 1 ? '' : 's'} across
+            the projects count towards no year (a missing date, an unknown purchase type, or a date
+            outside 1990–2100). They are marked in the registers of their project.
+          </span>
+        </p>
+      )}
     </>
   )
 }
