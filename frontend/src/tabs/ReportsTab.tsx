@@ -1,13 +1,18 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import type { Meta, PivotTable, Project, RateConfig, ResourcePlan } from '../types'
-import { Button, Card, ErrorBanner, Spinner } from '../components/ui'
+import { Button, Card, ErrorBanner, LinkButton, Spinner } from '../components/ui'
 import { formatEuro, formatNumber } from '../utils'
 import { useVault } from '../vault/VaultContext'
 import { VaultPrompt } from '../vault/VaultGate'
 import { computeBudgetPlan } from '../money/engine'
 import { downloadBudgetWorkbook } from '../money/excelBudget'
-import { emptyMoneyConfig, normalizeMoneyConfig, type BudgetPlan, type MoneyConfig } from '../money/types'
+import {
+  emptyMoneyConfig,
+  normalizeMoneyConfig,
+  type BudgetPlan,
+  type MoneyConfig,
+} from '../money/types'
 
 export default function ReportsTab({ project, meta }: { project: Project; meta: Meta }) {
   const vault = useVault()
@@ -16,21 +21,34 @@ export default function ReportsTab({ project, meta }: { project: Project; meta: 
   const [money, setMoney] = useState<MoneyConfig | null>(null)
   const [budget, setBudget] = useState<BudgetPlan | null>(null)
   const [error, setError] = useState('')
+  /* Switching scenarios while a load is in flight must not let the slower
+   * response render the previous project's report. */
+  const moneySeq = useRef(0)
 
   useEffect(() => {
+    let cancelled = false
     setResources(null)
+    setRates(null)
     setError('')
     Promise.all([api.getResourcePlan(project.id), api.getRates(project.id)])
       .then(([r, rc]) => {
+        if (cancelled) return
         setResources(r)
         setRates(rc)
       })
-      .catch((e) => setError(e.message))
+      .catch((e) => {
+        if (!cancelled) setError(e.message)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [project.id])
 
   // Money sections are computed locally after decrypting the blob
   const computeMoney = useCallback(async () => {
     if (vault.status !== 'unlocked' || !rates) return
+    const seq = moneySeq.current + 1
+    moneySeq.current = seq
     try {
       const blob = await api.getMoneyBlob(project.id)
       const config =
@@ -42,10 +60,11 @@ export default function ReportsTab({ project, meta }: { project: Project; meta: 
               }),
             )
           : emptyMoneyConfig(meta.locations, meta.levels, meta.ticket_sizes)
+      if (seq !== moneySeq.current) return
       setMoney(config)
-      setBudget(computeBudgetPlan(project, config, rates))
+      setBudget(computeBudgetPlan(project, config, rates, meta.hours_per_fte_per_month))
     } catch (e) {
-      setError((e as Error).message)
+      if (seq === moneySeq.current) setError((e as Error).message)
     }
   }, [project, rates, vault, meta])
 
@@ -73,16 +92,16 @@ export default function ReportsTab({ project, meta }: { project: Project; meta: 
             ⬇ Download Budget Plan (Excel)
           </Button>
         )}
-        <a href={api.resourcePlanXlsxUrl(project.id)} download>
-          <Button variant="secondary">⬇ Download Resource Plan (Excel)</Button>
-        </a>
+        <LinkButton href={api.resourcePlanXlsxUrl(project.id)} download>
+          ⬇ Download Resource Plan (Excel)
+        </LinkButton>
       </div>
 
       {!unlocked ? (
         <VaultPrompt>
-          Cost-profit analysis, ticket revenue and budget pivots are computed from
-          end-to-end encrypted financial data. Unlock the vault to view them — the
-          resource plan below is available without unlocking.
+          Cost-profit analysis, ticket revenue and budget pivots are computed from end-to-end
+          encrypted financial data. Unlock the vault to view them — the resource plan below is
+          available without unlocking.
         </VaultPrompt>
       ) : budget === null ? (
         <Spinner />

@@ -1,0 +1,16 @@
+# Top-level runtime dependencies. `requirements.txt` is compiled from this file
+# with pip-compile and is what the Dockerfile and CI install:
+#
+#     pip-compile requirements.in
+#     pip-compile requirements-dev.in
+fastapi>=0.115.0
+alembic>=1.14.0
+uvicorn[standard]>=0.32.0
+sqlalchemy>=2.0.35
+psycopg2-binary>=2.9.9
+pydantic>=2.9.0
+XlsxWriter>=3.2.0
+openpyxl>=3.1
+python-multipart>=0.0.12
+# openpyxl only guards against XML entity-expansion attacks when defusedxml is installed.
+defusedxml>=0.7.1

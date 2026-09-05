@@ -37,6 +37,7 @@ function project(roles: Role[]): Project {
     lost_reason: null,
     base_project_id: null,
     is_winning_scenario: false,
+    version: 1,
     created_at: '',
     updated_at: '',
     features: [{ id: 1, project_id: 1, name: 'F', roles }],
@@ -134,7 +135,12 @@ describe('bench sizing', () => {
 describe('row generation', () => {
   const catalog: HardwareCatalogItem[] = [
     catalogItem({ id: 1, name: 'Mini PC', unit_cost: 700, billing: 'once' }),
-    catalogItem({ id: 2, name: 'PowerSupply VOLTCRAFT PPS-16005', unit_cost: 222, billing: 'once' }),
+    catalogItem({
+      id: 2,
+      name: 'PowerSupply VOLTCRAFT PPS-16005',
+      unit_cost: 222,
+      billing: 'once',
+    }),
     catalogItem({ id: 3, name: 'PowerDebug E40', unit_cost: 1860, billing: 'once' }),
     catalogItem({ id: 4, name: 'VN1610 CAN Network Interface', unit_cost: 859, billing: 'once' }),
     catalogItem({ id: 5, name: 'AMTS PowerSupplyBoard (PSB)', unit_cost: 1000, billing: 'once' }),

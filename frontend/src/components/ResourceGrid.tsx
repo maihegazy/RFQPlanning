@@ -3,17 +3,9 @@ import { api } from '../api'
 import type { Project, Role } from '../types'
 import { Button, EmptyState, ErrorBanner } from './ui'
 import { MONTH_NAMES, formatMonth, monthRange } from '../utils'
+import { roleFtesForMonth } from '../money/engine'
 
 type CellValues = Record<number, Record<string, number>>
-
-function roleFtesForMonth(role: Role, month: string): number {
-  if (!role.use_advanced_allocation || role.allocations.length === 0) return role.ftes
-  let total = 0
-  for (const alloc of role.allocations) {
-    if (alloc.start_month <= month && month <= alloc.end_month) total += alloc.ftes
-  }
-  return total
-}
 
 function buildInitialValues(project: Project, months: string[]): CellValues {
   const values: CellValues = {}
@@ -112,6 +104,9 @@ export default function ResourceGrid({
       onChanged()
     } catch (e) {
       setError((e as Error).message)
+    } finally {
+      // The parent re-fetches the project but keeps this grid mounted, so the
+      // button has to come back on its own.
       setSaving(false)
     }
   }
@@ -125,8 +120,7 @@ export default function ResourceGrid({
   if (!hasRoles) {
     return (
       <EmptyState>
-        Add features and roles first (switch to List view), then edit their monthly
-        FTEs here.
+        Add features and roles first (switch to List view), then edit their monthly FTEs here.
       </EmptyState>
     )
   }
@@ -137,9 +131,9 @@ export default function ResourceGrid({
 
       <div className="flex items-center justify-between">
         <p className="text-xs text-slate-500">
-          Edit FTE values per month like a spreadsheet. Use the ⇥ fill button to apply
-          a row's first value to all months. Changed cells are highlighted; saving
-          converts each row into a fixed FTE or variable periods automatically.
+          Edit FTE values per month like a spreadsheet. Use the ⇥ fill button to apply a row's first
+          value to all months. Changed cells are highlighted; saving converts each row into a fixed
+          FTE or variable periods automatically.
         </p>
         <div className="flex shrink-0 gap-2">
           <Button variant="secondary" onClick={reset} disabled={dirtyRoles.size === 0}>
@@ -160,6 +154,7 @@ export default function ResourceGrid({
           <thead>
             <tr className="bg-slate-900">
               <th
+                scope="col"
                 className="sticky left-0 z-10 border-b border-r border-slate-700 bg-slate-900 px-3 py-2 text-left"
                 rowSpan={2}
               >
@@ -168,6 +163,7 @@ export default function ResourceGrid({
               {yearGroups.map(([year, span]) => (
                 <th
                   key={year}
+                  scope="colgroup"
                   colSpan={span}
                   className="border-b border-l border-slate-700 px-2 py-1.5 text-center font-semibold text-indigo-300"
                 >
@@ -176,6 +172,7 @@ export default function ResourceGrid({
               ))}
               <th
                 rowSpan={2}
+                scope="col"
                 className="border-b border-l border-slate-700 px-3 py-2 text-right"
               >
                 Total
@@ -186,6 +183,7 @@ export default function ResourceGrid({
               {months.map((m) => (
                 <th
                   key={m}
+                  scope="col"
                   className="border-b border-l border-slate-800 px-1 py-1 text-center font-medium text-slate-400"
                 >
                   {MONTH_NAMES[Number(m.slice(5)) - 1].slice(0, 3)}
@@ -277,7 +275,9 @@ function FeatureRows({
                   {role.location} · {role.level}
                 </span>
                 {dirtyRoles.has(role.id) && (
-                  <span className="ml-2 text-amber-400" title="Unsaved changes">●</span>
+                  <span className="ml-2 text-amber-400" title="Unsaved changes">
+                    ●
+                  </span>
                 )}
               </span>
             </div>

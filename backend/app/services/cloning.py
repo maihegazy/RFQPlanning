@@ -25,6 +25,7 @@ def clone_project(db: Session, source: models.Project, name: str,
         money_iv=source.money_iv,
         status=source.status,
         win_probability_pct=source.win_probability_pct,
+        lost_reason=source.lost_reason,
         base_project_id=base_project_id,
         is_winning_scenario=False,
     )

@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
-import { api } from '../api'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { api, isConflict } from '../api'
 import type { Meta, Project, RateConfig } from '../types'
 import { Button, Card, ErrorBanner, Input, Label, Spinner } from '../components/ui'
-import { projectYears } from '../utils'
+import { ConflictBanner } from '../components/ConflictBanner'
+import { formatEuro, projectYears } from '../utils'
 import { useVault } from '../vault/VaultContext'
 import { VaultPrompt } from '../vault/VaultGate'
 import { emptyMoneyConfig, normalizeMoneyConfig, type MoneyConfig } from '../money/types'
@@ -14,29 +15,55 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
   const [money, setMoney] = useState<MoneyConfig | null>(null)
   const [legacyBanner, setLegacyBanner] = useState(false)
   const [error, setError] = useState('')
+  const [conflict, setConflict] = useState('')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  /* Switching scenarios while a load is in flight must not let the slower
+   * response overwrite the newer project's figures. */
+  const moneySeq = useRef(0)
+  /* Reloading after a conflict re-runs both loads. */
+  const [reloadTick, setReloadTick] = useState(0)
 
   useEffect(() => {
-    api.getRates(project.id).then(setRates).catch((e) => setError(e.message))
-  }, [project.id])
+    let cancelled = false
+    setRates(null)
+    setSaved(false)
+    setError('')
+    setConflict('')
+    api
+      .getRates(project.id)
+      .then((next) => {
+        if (!cancelled) setRates(next)
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e.message)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [project.id, reloadTick])
 
   const loadMoney = useCallback(async () => {
     if (vault.status !== 'unlocked') return
+    const seq = moneySeq.current + 1
+    moneySeq.current = seq
+    const stale = () => seq !== moneySeq.current
     try {
       const blob = await api.getMoneyBlob(project.id)
+      if (stale()) return
       if (blob.encrypted_money && blob.money_iv) {
-        setMoney(
-          normalizeMoneyConfig(
-            await vault.decrypt<MoneyConfig>({
-              iv: blob.money_iv,
-              ciphertext: blob.encrypted_money,
-            }),
-          ),
+        const decrypted = normalizeMoneyConfig(
+          await vault.decrypt<MoneyConfig>({
+            iv: blob.money_iv,
+            ciphertext: blob.encrypted_money,
+          }),
         )
+        if (stale()) return
+        setMoney(decrypted)
       } else {
         // No blob yet — check for pre-encryption plaintext to migrate
         const legacy = await api.getLegacyMoney(project.id)
+        if (stale()) return
         const base = emptyMoneyConfig(meta.locations, meta.levels, meta.ticket_sizes)
         if (legacy.has_data) {
           setMoney({
@@ -57,7 +84,7 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
         }
       }
     } catch (e) {
-      setError((e as Error).message)
+      if (!stale()) setError((e as Error).message)
     }
   }, [project.id, vault, meta])
 
@@ -65,7 +92,7 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
     setMoney(null)
     setLegacyBanner(false)
     loadMoney()
-  }, [loadMoney])
+  }, [loadMoney, reloadTick])
 
   if (error && !rates) return <ErrorBanner message={error} />
   if (!rates) return <Spinner />
@@ -104,6 +131,7 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
     }
     setSaving(true)
     setError('')
+    setConflict('')
     try {
       const quotas: Record<string, Record<string, number>> = {}
       for (const year of years) {
@@ -112,15 +140,23 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
           quotas[String(year)][size] = quotaFor(year, size)
         }
       }
-      const updated = await api.updateRates(project.id, { ...rates, ticket_quotas: quotas })
+      // Both writes carry the version they were built from: a save that would
+      // overwrite someone else's is refused with a 409 and shown as a conflict.
+      const updated = await api.updateRates(project.id, {
+        ...rates,
+        ticket_quotas: quotas,
+        expected_version: rates.version,
+      })
       setRates(updated)
 
       if (money && vault.status === 'unlocked') {
         const blob = await vault.encrypt(money)
-        await api.putMoneyBlob(project.id, {
+        const stored = await api.putMoneyBlob(project.id, {
           encrypted_money: blob.ciphertext,
           money_iv: blob.iv,
+          expected_version: updated.version,
         })
+        setRates({ ...updated, version: stored.version })
         if (legacyBanner) {
           await api.purgeLegacyMoney(project.id)
           setLegacyBanner(false)
@@ -128,7 +164,8 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
       }
       setSaved(true)
     } catch (e) {
-      setError((e as Error).message)
+      if (isConflict(e)) setConflict(e.message)
+      else setError((e as Error).message)
     } finally {
       setSaving(false)
     }
@@ -139,20 +176,22 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
   return (
     <div className="space-y-6">
       {error && <ErrorBanner message={error} />}
+      {conflict && (
+        <ConflictBanner message={conflict} onReload={() => setReloadTick((n) => n + 1)} />
+      )}
 
       {legacyBanner && (
         <div className="rounded-lg border border-indigo-800 bg-indigo-950/50 px-4 py-3 text-sm text-indigo-200">
-          Unencrypted financial values from an earlier version were found for this project.
-          They are loaded below — click <strong>Save</strong> to encrypt them and remove
-          the plaintext from the database.
+          Unencrypted financial values from an earlier version were found for this project. They are
+          loaded below — click <strong>Save</strong> to encrypt them and remove the plaintext from
+          the database.
         </div>
       )}
 
       {moneyLocked ? (
         <VaultPrompt>
-          Hourly rates, cost rates and ticket prices are end-to-end encrypted.
-          Unlock the vault to view and edit them. Non-financial settings below remain
-          editable.
+          Hourly rates, cost rates and ticket prices are end-to-end encrypted. Unlock the vault to
+          view and edit them. Non-financial settings below remain editable.
         </VaultPrompt>
       ) : money === null ? (
         <Spinner />
@@ -165,6 +204,7 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
                   <Label>{loc}</Label>
                   <Input
                     type="number"
+                    aria-label={`Hourly sell rate ${loc}`}
                     min={0}
                     step={0.5}
                     value={money.hourly_rates[loc] ?? 0}
@@ -185,6 +225,7 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
                 <Label>HW Cost / Hour (€)</Label>
                 <Input
                   type="number"
+                  aria-label="Hardware cost per hour"
                   min={0}
                   step={0.5}
                   value={money.hw_cost_per_hour}
@@ -199,6 +240,7 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
                 <Label>Rate escalation (% / year)</Label>
                 <Input
                   type="number"
+                  aria-label="Rate escalation per year"
                   min={0}
                   step={0.5}
                   value={money.rate_escalation_pct}
@@ -225,7 +267,9 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
                 <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
                   <th className="pb-2 pr-4">Location</th>
                   {meta.levels.map((lvl) => (
-                    <th key={lvl} className="pb-2 pr-3">{lvl}</th>
+                    <th key={lvl} className="pb-2 pr-3">
+                      {lvl}
+                    </th>
                   ))}
                 </tr>
               </thead>
@@ -237,6 +281,7 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
                       <td key={lvl} className="py-2 pr-3">
                         <Input
                           type="number"
+                          aria-label={`Cost rate ${loc} ${lvl}`}
                           min={0}
                           step={0.5}
                           className="w-24"
@@ -263,10 +308,41 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
           <CostItemsEditor
             project={project}
             items={money.cost_items}
-            onChange={(items) => editMoney((m) => { m.cost_items = items })}
+            onChange={(items) =>
+              editMoney((m) => {
+                m.cost_items = items
+              })
+            }
           />
         </Card>
       )}
+
+      <Card title="Hardware Plan in the Analysis">
+        <p className="text-sm text-slate-400">
+          The Hardware tab's plan is carried into the cost-profit summary as a non-labor row per
+          year.
+          {Object.keys(rates.hardware_costs_per_year).length === 0
+            ? ' Nothing is planned yet.'
+            : ` Planned: ${Object.entries(rates.hardware_costs_per_year)
+                .map(([year, cost]) => `${year} ${formatEuro(cost)}`)
+                .join(' · ')}.`}
+        </p>
+        <label className="mt-3 flex items-center gap-2 text-sm text-slate-300">
+          <input
+            type="checkbox"
+            aria-label="Bill the hardware plan to the customer"
+            className="accent-indigo-500"
+            checked={rates.hardware_pass_through}
+            onChange={(e) =>
+              editRates((r) => {
+                r.hardware_pass_through = e.target.checked
+              })
+            }
+          />
+          Billed to the customer (pass-through): the plan's cost is charged on top of the selling
+          price
+        </label>
+      </Card>
 
       <Card title="Conversion Factors">
         <div className="grid grid-cols-2 gap-4 sm:max-w-md">
@@ -274,20 +350,30 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
             <Label>SP → Hours</Label>
             <Input
               type="number"
+              aria-label="Story points to hours"
               min={0}
               step={0.5}
               value={rates.sp_to_hours}
-              onChange={(e) => editRates((r) => { r.sp_to_hours = Number(e.target.value) })}
+              onChange={(e) =>
+                editRates((r) => {
+                  r.sp_to_hours = Number(e.target.value)
+                })
+              }
             />
           </div>
           <div>
             <Label>Risk Factor (%)</Label>
             <Input
               type="number"
+              aria-label="Risk factor"
               min={0}
               step={0.5}
               value={rates.risk_factor_pct}
-              onChange={(e) => editRates((r) => { r.risk_factor_pct = Number(e.target.value) })}
+              onChange={(e) =>
+                editRates((r) => {
+                  r.risk_factor_pct = Number(e.target.value)
+                })
+              }
             />
           </div>
         </div>
@@ -302,7 +388,9 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
                 <th className="pb-2 pr-4">Story Points</th>
                 <th className="pb-2 pr-4">Price (€) 🔐</th>
                 {years.map((y) => (
-                  <th key={y} className="pb-2 pr-4">Quota {y} (%)</th>
+                  <th key={y} className="pb-2 pr-4">
+                    Quota {y} (%)
+                  </th>
                 ))}
               </tr>
             </thead>
@@ -313,12 +401,15 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
                   <td className="py-2 pr-4">
                     <Input
                       type="number"
+                      aria-label={`Story points ${size}`}
                       min={0}
                       step={0.5}
                       className="w-24"
                       value={rates.ticket_story_points[size] ?? 0}
                       onChange={(e) =>
-                        editRates((r) => { r.ticket_story_points[size] = Number(e.target.value) })
+                        editRates((r) => {
+                          r.ticket_story_points[size] = Number(e.target.value)
+                        })
                       }
                     />
                   </td>
@@ -328,12 +419,15 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
                     ) : (
                       <Input
                         type="number"
+                        aria-label={`Ticket price ${size}`}
                         min={0}
                         step={0.5}
                         className="w-24"
                         value={money.ticket_prices[size] ?? 0}
                         onChange={(e) =>
-                          editMoney((m) => { m.ticket_prices[size] = Number(e.target.value) })
+                          editMoney((m) => {
+                            m.ticket_prices[size] = Number(e.target.value)
+                          })
                         }
                       />
                     )}
@@ -342,11 +436,14 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
                     <td key={y} className="py-2 pr-4">
                       <Input
                         type="number"
+                        aria-label={`Quota ${y} ${size}`}
                         min={0}
                         max={100}
                         step={1}
                         className={`w-24 ${
-                          quotaTotal(y) > 100 ? 'border-rose-600 focus:border-rose-500 focus:ring-rose-500' : ''
+                          quotaTotal(y) > 100
+                            ? 'border-rose-600 focus:border-rose-500 focus:ring-rose-500'
+                            : ''
                         }`}
                         value={quotaFor(y, size)}
                         onChange={(e) =>
@@ -373,9 +470,7 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
                   return (
                     <td
                       key={y}
-                      className={`py-2 pr-4 ${
-                        total > 100 ? 'text-rose-400' : 'text-slate-300'
-                      }`}
+                      className={`py-2 pr-4 ${total > 100 ? 'text-rose-400' : 'text-slate-300'}`}
                     >
                       {total}%{total > 100 && ' ⚠'}
                     </td>
@@ -393,8 +488,8 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
           </div>
         )}
         <p className="mt-3 text-xs text-slate-500">
-          Quota = percentage of the year's total man-hours expected to be delivered as
-          tickets of this size. Fields marked 🔐 are end-to-end encrypted.
+          Quota = percentage of the year's total man-hours expected to be delivered as tickets of
+          this size. Fields marked 🔐 are end-to-end encrypted.
         </p>
       </Card>
 
@@ -402,7 +497,11 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
         <Button onClick={save} disabled={saving || quotaErrors.length > 0}>
           {saving ? 'Saving…' : 'Save Budget Configuration'}
         </Button>
-        {saved && <span className="text-sm text-emerald-400">Saved ✓ {money ? '(financial data encrypted)' : ''}</span>}
+        {saved && (
+          <span className="text-sm text-emerald-400">
+            Saved ✓ {money ? '(financial data encrypted)' : ''}
+          </span>
+        )}
       </div>
     </div>
   )

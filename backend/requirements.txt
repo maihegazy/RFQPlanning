@@ -1,10 +1,76 @@
-fastapi>=0.115.0
-alembic>=1.14.0
-uvicorn[standard]>=0.32.0
-sqlalchemy>=2.0.35
-psycopg2-binary>=2.9.9
-pydantic>=2.9.0
-pydantic-settings>=2.5.0
-XlsxWriter>=3.2.0
-openpyxl>=3.1
-python-multipart>=0.0.12
+alembic==1.19.2
+    # via -r requirements.in
+annotated-doc==0.0.5
+    # via fastapi
+annotated-types==0.8.0
+    # via pydantic
+anyio==4.15.0
+    # via
+    #   starlette
+    #   watchfiles
+click==8.5.0
+    # via uvicorn
+defusedxml==0.7.1
+    # via -r requirements.in
+et-xmlfile==2.0.0
+    # via openpyxl
+fastapi==0.141.1
+    # via -r requirements.in
+greenlet==3.5.5
+    # via sqlalchemy
+h11==0.16.0
+    # via uvicorn
+httptools==0.8.0
+    # via uvicorn
+idna==3.19
+    # via anyio
+mako==1.4.1
+    # via alembic
+markupsafe==3.0.3
+    # via mako
+openpyxl==3.1.5
+    # via -r requirements.in
+psycopg2-binary==2.9.12
+    # via -r requirements.in
+pydantic==2.13.5
+    # via
+    #   -r requirements.in
+    #   fastapi
+pydantic-core==2.46.5
+    # via pydantic
+python-dotenv==1.2.3
+    # via uvicorn
+python-multipart==0.0.32
+    # via -r requirements.in
+pyyaml==6.0.3
+    # via uvicorn
+sqlalchemy==2.0.52
+    # via
+    #   -r requirements.in
+    #   alembic
+starlette==1.6.0
+    # via fastapi
+typing-extensions==4.16.0
+    # via
+    #   alembic
+    #   anyio
+    #   fastapi
+    #   pydantic
+    #   pydantic-core
+    #   sqlalchemy
+    #   starlette
+    #   typing-inspection
+typing-inspection==0.4.4
+    # via
+    #   fastapi
+    #   pydantic
+uvicorn==0.52.4
+    # via -r requirements.in
+uvloop==0.22.1
+    # via uvicorn
+watchfiles==1.2.0
+    # via uvicorn
+websockets==17.1
+    # via uvicorn
+xlsxwriter==3.2.9
+    # via -r requirements.in

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import type { Meta, Project, ProjectSummary } from '../types'
@@ -34,8 +34,13 @@ export default function CompareTab({
   const navigate = useNavigate()
   const [kpis, setKpis] = useState<ScenarioKpis[] | null>(null)
   const [error, setError] = useState('')
+  /* Switching scenarios while a comparison is still loading must not let the
+   * slower response overwrite the newer one. */
+  const loadSeq = useRef(0)
 
   const load = useCallback(async () => {
+    const seq = loadSeq.current + 1
+    loadSeq.current = seq
     setError('')
     try {
       const family = await api.listScenarios(project.id)
@@ -44,7 +49,7 @@ export default function CompareTab({
         const full = await api.getProject(summary.id)
         const months = projectMonths(full)
         const emptyMoney = emptyMoneyConfig(meta.locations, meta.levels, meta.ticket_sizes)
-        const effortRows = buildBudgetRows(full, emptyMoney, months)
+        const effortRows = buildBudgetRows(full, emptyMoney, months, meta.hours_per_fte_per_month)
         const fteMonths = effortRows.reduce((s, r) => s + r.ftes, 0)
         const manHours = effortRows.reduce((s, r) => s + r.man_hours, 0)
 
@@ -66,7 +71,7 @@ export default function CompareTab({
                 )
               : emptyMoney
           const rates = await api.getRates(summary.id)
-          const plan = computeBudgetPlan(full, money, rates)
+          const plan = computeBudgetPlan(full, money, rates, meta.hours_per_fte_per_month)
           revenue = plan.cost_profit_overall.reduce((s, r) => s + r.selling_price, 0)
           cost = plan.cost_profit_overall.reduce((s, r) => s + r.cost, 0)
           profit = revenue - cost
@@ -91,9 +96,10 @@ export default function CompareTab({
           perYear,
         })
       }
+      if (seq !== loadSeq.current) return
       setKpis(results)
     } catch (e) {
-      setError((e as Error).message)
+      if (seq === loadSeq.current) setError((e as Error).message)
     }
   }, [project.id, vault, meta])
 
@@ -118,8 +124,8 @@ export default function CompareTab({
   if (kpis.length < 2) {
     return (
       <EmptyState>
-        No scenarios yet. Use "New scenario" in the header to clone this project, adjust
-        staffing or rates in the copy, then compare them here side by side.
+        No scenarios yet. Use "New scenario" in the header to clone this project, adjust staffing or
+        rates in the copy, then compare them here side by side.
       </EmptyState>
     )
   }
@@ -131,8 +137,8 @@ export default function CompareTab({
     <div className="space-y-6">
       {vault.status !== 'unlocked' && (
         <VaultPrompt>
-          Unlock financial data to compare revenue, cost and margins. Effort figures below
-          are available without unlocking.
+          Unlock financial data to compare revenue, cost and margins. Effort figures below are
+          available without unlocking.
         </VaultPrompt>
       )}
 
@@ -168,23 +174,33 @@ export default function CompareTab({
               </tr>
             </thead>
             <tbody>
-              <KpiRow label="Status" values={kpis.map((k) => (
-                <StatusBadge key={k.summary.id} status={k.summary.status} />
-              ))} />
+              <KpiRow
+                label="Status"
+                values={kpis.map((k) => (
+                  <StatusBadge key={k.summary.id} status={k.summary.status} />
+                ))}
+              />
               <KpiRow label="FTE-months" values={kpis.map((k) => formatNumber(k.fteMonths, 1))} />
               <KpiRow label="Man-hours" values={kpis.map((k) => formatNumber(k.manHours, 0))} />
-              <KpiRow label="Revenue" values={kpis.map((k) => (k.revenue === null ? '🔒' : formatEuro(k.revenue)))} />
-              <KpiRow label="Cost" values={kpis.map((k) => (k.cost === null ? '🔒' : formatEuro(k.cost)))} />
-              <KpiRow label="Profit" values={kpis.map((k) => (k.profit === null ? '🔒' : formatEuro(k.profit)))} />
+              <KpiRow
+                label="Revenue"
+                values={kpis.map((k) => (k.revenue === null ? '🔒' : formatEuro(k.revenue)))}
+              />
+              <KpiRow
+                label="Cost"
+                values={kpis.map((k) => (k.cost === null ? '🔒' : formatEuro(k.cost)))}
+              />
+              <KpiRow
+                label="Profit"
+                values={kpis.map((k) => (k.profit === null ? '🔒' : formatEuro(k.profit)))}
+              />
               <tr className="border-t border-slate-700 bg-slate-900/80 font-semibold">
                 <td className="py-2.5 pr-4">Margin %</td>
                 {kpis.map((k) => (
                   <td
                     key={k.summary.id}
                     className={`py-2.5 pr-4 text-right ${
-                      k.marginPct !== null && k.marginPct === bestMargin
-                        ? 'text-emerald-300'
-                        : ''
+                      k.marginPct !== null && k.marginPct === bestMargin ? 'text-emerald-300' : ''
                     }`}
                   >
                     {k.marginPct === null ? '🔒' : `${formatNumber(k.marginPct)}%`}
@@ -217,7 +233,9 @@ export default function CompareTab({
                 <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
                   <th className="pb-2 pr-4">Year</th>
                   {kpis.map((k) => (
-                    <th key={k.summary.id} className="pb-2 pr-4 text-right">{k.summary.name}</th>
+                    <th key={k.summary.id} className="pb-2 pr-4 text-right">
+                      {k.summary.name}
+                    </th>
                   ))}
                 </tr>
               </thead>
@@ -247,9 +265,13 @@ export default function CompareTab({
 function KpiRow({ label, values }: { label: string; values: React.ReactNode[] }) {
   return (
     <tr className="border-t border-slate-800/60">
-      <td className="py-2.5 pr-4 text-slate-400">{label}</td>
+      <th scope="row" className="py-2.5 pr-4 text-left font-normal text-slate-400">
+        {label}
+      </th>
       {values.map((v, i) => (
-        <td key={i} className="py-2.5 pr-4 text-right">{v}</td>
+        <td key={i} className="py-2.5 pr-4 text-right">
+          {v}
+        </td>
       ))}
     </tr>
   )

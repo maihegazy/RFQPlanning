@@ -1,7 +1,15 @@
 import { useState } from 'react'
 import { api } from '../api'
 import type { Feature, Meta, Project, Role } from '../types'
-import { Button, Card, EmptyState, ErrorBanner, Input, Modal } from '../components/ui'
+import {
+  Button,
+  Card,
+  ConfirmDialog,
+  EmptyState,
+  ErrorBanner,
+  Input,
+  Modal,
+} from '../components/ui'
 import RoleModal from '../components/RoleModal'
 import ResourceGrid from '../components/ResourceGrid'
 
@@ -30,15 +38,21 @@ export default function ResourcesTab({
     }
   }
 
-  const deleteFeature = (feature: Feature) => {
-    if (!window.confirm(`Delete feature "${feature.name}" and all its roles?`)) return
-    run(() => api.deleteFeature(feature.id))
+  /* Deletes ask first, in the same styled dialog as everything else. */
+  const [pendingDelete, setPendingDelete] = useState<
+    { kind: 'feature'; feature: Feature } | { kind: 'role'; role: Role } | null
+  >(null)
+
+  const confirmDelete = () => {
+    const target = pendingDelete
+    setPendingDelete(null)
+    if (target === null) return
+    if (target.kind === 'feature') run(() => api.deleteFeature(target.feature.id))
+    else run(() => api.deleteRole(target.role.id))
   }
 
-  const deleteRole = (role: Role) => {
-    if (!window.confirm(`Delete role "${role.name}"?`)) return
-    run(() => api.deleteRole(role.id))
-  }
+  const deleteFeature = (feature: Feature) => setPendingDelete({ kind: 'feature', feature })
+  const deleteRole = (role: Role) => setPendingDelete({ kind: 'role', role })
 
   return (
     <div className="space-y-6">
@@ -56,9 +70,7 @@ export default function ResourcesTab({
               key={key}
               onClick={() => setView(key)}
               className={`rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors ${
-                view === key
-                  ? 'bg-indigo-600 text-white'
-                  : 'text-slate-400 hover:text-slate-200'
+                view === key ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               {label}
@@ -94,7 +106,12 @@ export default function ResourcesTab({
                 <Button variant="ghost" onClick={() => setEditingFeature(feature)}>
                   Rename
                 </Button>
-                <Button variant="ghost" onClick={() => deleteFeature(feature)}>
+                <Button
+                  variant="ghost"
+                  onClick={() => deleteFeature(feature)}
+                  aria-label={`Delete feature ${feature.name}`}
+                  title="Delete feature"
+                >
                   🗑
                 </Button>
               </>
@@ -136,7 +153,12 @@ export default function ResourcesTab({
                           <Button variant="ghost" onClick={() => setRoleModal({ feature, role })}>
                             Edit
                           </Button>
-                          <Button variant="ghost" onClick={() => deleteRole(role)}>
+                          <Button
+                            variant="ghost"
+                            onClick={() => deleteRole(role)}
+                            aria-label={`Delete role ${role.name}`}
+                            title="Delete role"
+                          >
                             🗑
                           </Button>
                         </td>
@@ -171,6 +193,22 @@ export default function ResourcesTab({
             await run(() => api.updateFeature(editingFeature.id, name))
             setEditingFeature(null)
           }}
+        />
+      )}
+
+      {pendingDelete !== null && (
+        <ConfirmDialog
+          title={pendingDelete.kind === 'feature' ? 'Delete feature' : 'Delete role'}
+
+          message={
+            pendingDelete.kind === 'feature'
+              ? `Delete feature "${pendingDelete.feature.name}" and all its roles? This cannot be undone.`
+              : `Delete role "${pendingDelete.role.name}"? This cannot be undone.`
+          }
+
+          onConfirm={confirmDelete}
+
+          onCancel={() => setPendingDelete(null)}
         />
       )}
 
@@ -214,6 +252,7 @@ function FeatureNameModal({
         className="space-y-4"
       >
         <Input
+          aria-label="Feature name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Feature name"

@@ -131,21 +131,34 @@ export default function RoleModal({
         <div className="grid gap-4 sm:grid-cols-3">
           <div>
             <Label>Role name</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+            <Input
+              aria-label="Role name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoFocus
+            />
           </div>
           <div>
             <Label>Location</Label>
-            <Select value={location} onChange={(e) => setLocation(e.target.value)}>
+            <Select
+              aria-label="Location"
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+            >
               {meta.locations.map((loc) => (
-                <option key={loc} value={loc}>{loc}</option>
+                <option key={loc} value={loc}>
+                  {loc}
+                </option>
               ))}
             </Select>
           </div>
           <div>
             <Label>Level</Label>
-            <Select value={level} onChange={(e) => setLevel(e.target.value)}>
+            <Select aria-label="Level" value={level} onChange={(e) => setLevel(e.target.value)}>
               {meta.levels.map((lvl) => (
-                <option key={lvl} value={lvl}>{lvl}</option>
+                <option key={lvl} value={lvl}>
+                  {lvl}
+                </option>
               ))}
             </Select>
           </div>
@@ -178,6 +191,7 @@ export default function RoleModal({
               <Label>FTE (0 – 2.0)</Label>
               <Input
                 type="number"
+                aria-label="Fixed FTE"
                 min={0}
                 max={2}
                 step={0.1}
@@ -197,6 +211,7 @@ export default function RoleModal({
                   <div>
                     <Label>Start (YYYY-MM)</Label>
                     <Input
+                      aria-label={`Period ${i + 1} start month`}
                       type="month"
                       value={alloc.start_month}
                       min={projectStart}
@@ -208,6 +223,7 @@ export default function RoleModal({
                   <div>
                     <Label>End (YYYY-MM)</Label>
                     <Input
+                      aria-label={`Period ${i + 1} end month`}
                       type="month"
                       value={alloc.end_month}
                       min={projectStart}
@@ -220,6 +236,7 @@ export default function RoleModal({
                     <Label>FTE</Label>
                     <Input
                       type="number"
+                      aria-label={`Period ${i + 1} FTE`}
                       min={0}
                       step={0.1}
                       value={alloc.ftes}
@@ -227,7 +244,12 @@ export default function RoleModal({
                       className="w-24"
                     />
                   </div>
-                  <Button variant="ghost" onClick={() => removePeriod(i)}>
+                  <Button
+                    variant="ghost"
+                    onClick={() => removePeriod(i)}
+                    aria-label={`Remove period ${i + 1}`}
+                    title="Remove period"
+                  >
                     ✕
                   </Button>
                 </div>
@@ -243,13 +265,16 @@ export default function RoleModal({
           )}
 
           <p className="mt-3 text-xs text-slate-500">
-            Total over project: <span className="text-slate-300">{totalFteMonths.toFixed(1)} FTE-months</span> (
+            Total over project:{' '}
+            <span className="text-slate-300">{totalFteMonths.toFixed(1)} FTE-months</span> (
             {(totalFteMonths * meta.hours_per_fte_per_month).toLocaleString()} man-hours)
           </p>
         </div>
 
         <div className="flex justify-end gap-2 pt-1">
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
           <Button onClick={save} disabled={saving}>
             {saving ? 'Saving…' : role ? 'Save Role' : 'Add Role'}
           </Button>

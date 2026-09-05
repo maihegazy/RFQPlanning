@@ -14,6 +14,10 @@ from sqlalchemy.orm import Session
 
 from .. import models, schemas
 from ..database import get_db
+from ..services.hardware_plan import item_total, item_year_costs, item_years
+from ..services.http import attachment_disposition
+from ..services.loading import hardware_plan
+from ..services.versioning import require_version
 from .projects import get_project_or_404
 
 router = APIRouter(prefix="/api", tags=["hardware"])
@@ -26,25 +30,6 @@ XLSX_MEDIA_TYPE = (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def item_years(item: models.HardwareItem) -> list[int]:
-    try:
-        years = json.loads(item.years_json or "[]")
-    except ValueError:
-        years = []
-    return sorted({int(y) for y in years})
-
-
-def item_total(item: models.HardwareItem) -> float:
-    """Yearly items cost unit_cost x qty for every selected year; a one-time
-    purchase costs unit_cost x qty once (in its selected purchase year)."""
-    years = item_years(item)
-    if item.billing == "once":
-        occurrences = 1
-    else:
-        occurrences = len(years)
-    return round(item.unit_cost * item.qty * occurrences, 2)
-
 
 def supplier_email(item: models.HardwareItem) -> str:
     """Supplier contact lives with the vendor in the catalog; fall back to the
@@ -74,29 +59,29 @@ def serialize_item(item: models.HardwareItem) -> dict:
     }
 
 
-def _year_costs(item: models.HardwareItem, project: models.Project) -> dict[int, float]:
-    """Cost the item contributes to each project year."""
-    years = item_years(item)
-    per_unit = round(item.unit_cost * item.qty, 2)
-    if item.billing == "once":
-        # A one-time purchase lands in its selected year (or the project
-        # start year when no year was picked).
-        year = years[0] if years else project.start_year
-        return {year: per_unit}
-    return {year: per_unit for year in years}
-
-
 def build_plan(project: models.Project) -> dict:
     items = [serialize_item(i) for i in project.hardware_items]
     per_year: dict[int, float] = {}
+    warnings: list[str] = []
     for item in project.hardware_items:
-        for year, cost in _year_costs(item, project).items():
-            per_year[year] = round(per_year.get(year, 0.0) + cost, 2)
+        for year, cost in item_year_costs(item, project.start_year).items():
+            if project.start_year <= year <= project.end_year:
+                per_year[year] = round(per_year.get(year, 0.0) + cost, 2)
+            else:
+                # Only possible for rows written before timeline changes were
+                # validated; the year columns cannot place them, so say so.
+                warnings.append(
+                    f"{item.name} is planned for {year}, outside the project years "
+                    f"{project.start_year}-{project.end_year}, and is not shown in a "
+                    "year column"
+                )
     grand_total = round(sum(i["total"] for i in items), 2)
     return {
         "items": items,
         "per_year": dict(sorted(per_year.items())),
         "grand_total": grand_total,
+        "warnings": warnings,
+        "version": project.version,
     }
 
 
@@ -144,6 +129,12 @@ def _get_catalog_or_404(item_id: int, db: Session) -> models.HardwareCatalogItem
     return record
 
 
+def _require_catalog_item(item_id: int, db: Session) -> None:
+    """A body's catalog link must exist; a bad one is a 422, not a missing page."""
+    if db.get(models.HardwareCatalogItem, item_id) is None:
+        raise HTTPException(status_code=422, detail=f"Catalog item not found: {item_id}")
+
+
 @router.put("/hardware-catalog/{item_id}",
             response_model=schemas.HardwareCatalogItemOut)
 def update_catalog_item(item_id: int, data: schemas.HardwareCatalogItemUpdate,
@@ -167,11 +158,23 @@ def delete_catalog_item(item_id: int, db: Session = Depends(get_db)):
 # Per-project hardware plan
 # ---------------------------------------------------------------------------
 
+def get_project_with_plan_or_404(project_id: int, db: Session) -> models.Project:
+    """The project with its plan rows and their catalog entries in three queries."""
+    project = (
+        db.query(models.Project)
+        .options(hardware_plan())
+        .filter(models.Project.id == project_id)
+        .one_or_none()
+    )
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
+
 @router.get("/projects/{project_id}/hardware",
             response_model=schemas.HardwarePlanOut)
 def get_hardware_plan(project_id: int, db: Session = Depends(get_db)):
-    project = get_project_or_404(project_id, db)
-    return build_plan(project)
+    return build_plan(get_project_with_plan_or_404(project_id, db))
 
 
 @router.post("/projects/{project_id}/hardware", status_code=201,
@@ -181,7 +184,7 @@ def create_hardware_item(project_id: int, data: schemas.HardwareItemCreate,
     project = get_project_or_404(project_id, db)
     _validate_years_in_timeline(project, data.years)
     if data.catalog_item_id is not None:
-        _get_catalog_or_404(data.catalog_item_id, db)
+        _require_catalog_item(data.catalog_item_id, db)
     payload = data.model_dump(exclude={"years"})
     record = models.HardwareItem(
         project_id=project.id,
@@ -192,6 +195,64 @@ def create_hardware_item(project_id: int, data: schemas.HardwareItemCreate,
     db.commit()
     db.refresh(record)
     return serialize_item(record)
+
+
+@router.put("/projects/{project_id}/hardware", response_model=schemas.HardwarePlanOut)
+def replace_hardware_plan(project_id: int, data: schemas.HardwareBulkUpdate,
+                          db: Session = Depends(get_db)):
+    """Save the whole plan in one transaction: the posted rows become the plan.
+
+    A row with an id keeps its stored row, one without is created, and stored
+    rows the list no longer names are removed. Every check runs before the first
+    write, so a rejected save leaves the plan exactly as it was.
+    """
+    project = get_project_or_404(project_id, db)
+    require_version(db, project, data.expected_version)
+
+    wanted = {item.catalog_item_id for item in data.items if item.catalog_item_id is not None}
+    if wanted:
+        found = {
+            row[0]
+            for row in db.query(models.HardwareCatalogItem.id)
+            .filter(models.HardwareCatalogItem.id.in_(wanted))
+        }
+        missing = sorted(wanted - found)
+        if missing:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Catalog item(s) {', '.join(map(str, missing))} do not exist",
+            )
+    for item in data.items:
+        _validate_years_in_timeline(project, item.years)
+
+    existing = {item.id: item for item in project.hardware_items}
+    seen: set[int] = set()
+    kept = []
+    for position, item in enumerate(data.items, start=1):
+        payload = item.model_dump(exclude={"id", "years"})
+        if item.id is None:
+            record = models.HardwareItem(project_id=project.id, **payload)
+        else:
+            record = existing.get(item.id)
+            if record is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Row {position}: hardware item {item.id} is not in this plan",
+                )
+            if item.id in seen:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Row {position}: hardware item {item.id} is listed twice",
+                )
+            seen.add(item.id)
+            for field, value in payload.items():
+                setattr(record, field, value)
+        record.years_json = json.dumps(item.years)
+        kept.append(record)
+    project.hardware_items = kept
+    db.commit()
+    db.refresh(project)
+    return build_plan(project)
 
 
 def _get_item_or_404(item_id: int, db: Session) -> models.HardwareItem:
@@ -209,7 +270,7 @@ def update_hardware_item(item_id: int, data: schemas.HardwareItemUpdate,
     project = get_project_or_404(record.project_id, db)
     _validate_years_in_timeline(project, data.years)
     if data.catalog_item_id is not None:
-        _get_catalog_or_404(data.catalog_item_id, db)
+        _require_catalog_item(data.catalog_item_id, db)
     for key, value in data.model_dump(exclude={"years"}).items():
         setattr(record, key, value)
     record.years_json = json.dumps(data.years)
@@ -241,7 +302,8 @@ def hardware_plan_xlsx(project_id: int, db: Session = Depends(get_db)):
     years = list(range(project.start_year, project.end_year + 1))
 
     buffer = io.BytesIO()
-    workbook = xlsxwriter.Workbook(buffer, {"in_memory": True})
+    # Item and supplier names are user text: "=..." must stay text, not a formula.
+    workbook = xlsxwriter.Workbook(buffer, {"in_memory": True, "strings_to_formulas": False})
     sheet = workbook.add_worksheet("Hardware Plan")
 
     header_fmt = workbook.add_format({
@@ -267,14 +329,14 @@ def hardware_plan_xlsx(project_id: int, db: Session = Depends(get_db)):
     year_offset = 5
     total_col = year_offset + len(years)
     for row_idx, (item, record) in enumerate(
-        zip(plan["items"], project.hardware_items), start=1
+        zip(plan["items"], project.hardware_items, strict=True), start=1
     ):
         sheet.write(row_idx, 0, item["aspice"], text_fmt)
         sheet.write(row_idx, 1, item["name"], text_fmt)
         sheet.write(row_idx, 2, item["billing"], text_fmt)
         sheet.write(row_idx, 3, item["unit_cost"], money_fmt)
         sheet.write(row_idx, 4, item["qty"], int_fmt)
-        year_costs = _year_costs(record, project)
+        year_costs = item_year_costs(record, project.start_year)
         for offset, year in enumerate(years):
             value = year_costs.get(year)
             if value is None:
@@ -301,9 +363,12 @@ def hardware_plan_xlsx(project_id: int, db: Session = Depends(get_db)):
         sheet.set_column(idx, idx, width)
 
     workbook.close()
-    filename = f"{project.name} - Hardware Plan.xlsx"
     return Response(
         content=buffer.getvalue(),
         media_type=XLSX_MEDIA_TYPE,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": attachment_disposition(
+                f"{project.name} - Hardware Plan.xlsx"
+            )
+        },
     )

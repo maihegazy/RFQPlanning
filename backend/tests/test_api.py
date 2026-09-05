@@ -7,7 +7,7 @@ suite (frontend/src/money/engine.test.ts).
 """
 
 import pytest
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 
 from app.database import engine, run_migrations
 
@@ -65,7 +65,7 @@ def test_project_crud(client, project_id):
     assert resp.json()["company"] == "Vehiclevo GmbH"
 
     resp = client.get("/api/projects")
-    assert len(resp.json()) == 1
+    assert project_id in [row["id"] for row in resp.json()]
 
 
 def test_features_and_roles(client, project_id):
@@ -184,9 +184,12 @@ def test_vault_lifecycle(client):
         "wrapped_dek_passphrase": "d3JhcHBlZC1wYXNz",
         "wrapped_dek_recovery_iv": "aXYyaXYyaXYy",
         "wrapped_dek_recovery": "d3JhcHBlZC1yZWM=",
+        "dek_verifier": "dmVyaWZpZXItb2YtdGhlLWRlaw==",
     }
     resp = client.post("/api/vault", json=keys)
     assert resp.status_code == 201, resp.text
+    assert resp.json()["has_verifier"] is True
+    assert "dek_verifier" not in resp.json()
 
     # Second setup rejected
     assert client.post("/api/vault", json=keys).status_code == 409
@@ -195,6 +198,7 @@ def test_vault_lifecycle(client):
     data = resp.json()
     assert data["exists"] is True
     assert data["wrapped_dek_recovery"] == keys["wrapped_dek_recovery"]
+    assert "dek_verifier" not in data
 
     # Passphrase change re-wraps only the passphrase copy
     resp = client.put("/api/vault/passphrase", json={
@@ -202,8 +206,11 @@ def test_vault_lifecycle(client):
         "kdf_iterations": 700000,
         "wrapped_dek_passphrase_iv": "bmV3aXY=",
         "wrapped_dek_passphrase": "bmV3LXdyYXBwZWQ=",
+        "current_wrapped_dek_passphrase_iv": keys["wrapped_dek_passphrase_iv"],
+        "current_wrapped_dek_passphrase": keys["wrapped_dek_passphrase"],
+        "dek_verifier": keys["dek_verifier"],
     })
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["kdf_iterations"] == 700000
     assert data["wrapped_dek_recovery"] == keys["wrapped_dek_recovery"]
@@ -211,14 +218,15 @@ def test_vault_lifecycle(client):
 
 def test_money_blob_roundtrip(client, project_id):
     resp = client.get(f"/api/projects/{project_id}/financial-data")
-    assert resp.json() == {"encrypted_money": None, "money_iv": None}
+    assert resp.json()["encrypted_money"] is None
+    assert resp.json()["money_iv"] is None
 
     blob = {"encrypted_money": "b3BhcXVlLWNpcGhlcnRleHQ=", "money_iv": "aXZpdml2"}
     resp = client.put(f"/api/projects/{project_id}/financial-data", json=blob)
     assert resp.status_code == 200
 
     resp = client.get(f"/api/projects/{project_id}/financial-data")
-    assert resp.json() == blob
+    assert {key: resp.json()[key] for key in blob} == blob
 
 
 def test_legacy_money_migration(client, project_id):
@@ -234,18 +242,14 @@ def test_legacy_money_migration(client, project_id):
 
 def test_no_plaintext_money_in_db(client, project_id):
     """After setting rates + blob, no monetary number may exist in plaintext."""
-    import sqlite3
-    conn = sqlite3.connect("./test_rfq.db")
-    try:
+    with engine.connect() as connection:
         for table in ["hourly_rates", "cost_rates"]:
-            rows = conn.execute(f"SELECT * FROM {table}").fetchall()
+            rows = connection.execute(text(f"SELECT * FROM {table}")).fetchall()
             assert rows == [], f"plaintext rows found in {table}: {rows}"
-        prices = conn.execute("SELECT price FROM ticket_configs").fetchall()
+        prices = connection.execute(text("SELECT price FROM ticket_configs")).fetchall()
         assert all(p == (0.0,) for p in prices)
-        hw = conn.execute("SELECT hw_cost_per_hour FROM projects").fetchall()
+        hw = connection.execute(text("SELECT hw_cost_per_hour FROM projects")).fetchall()
         assert all(h == (0.0,) for h in hw)
-    finally:
-        conn.close()
 
 
 def test_resource_grid_update(client):
@@ -452,7 +456,9 @@ def test_scenarios(client, project_id):
     # Money blob copied verbatim
     base_money = client.get(f"/api/projects/{project_id}/financial-data").json()
     scen_money = client.get(f"/api/projects/{scenario['id']}/financial-data").json()
-    assert base_money == scen_money
+    # Versions move independently; the ciphertext and IV are what the clone copies
+    assert {k: base_money[k] for k in ("encrypted_money", "money_iv")} == \
+        {k: scen_money[k] for k in ("encrypted_money", "money_iv")}
 
     # Promote exclusivity
     resp = client.post(f"/api/projects/{scenario['id']}/promote")
@@ -476,25 +482,35 @@ def test_scenarios(client, project_id):
     client.delete(f"/api/projects/{resp.json()['id']}")
 
 
-def test_portfolio_capacity(client, project_id):
-    resp = client.get("/api/portfolio/capacity")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["locations"] == ["BCC", "HCC", "MCC"]
-    # project_id spans 2026-01..2027-06 with BCC 1.0 + HCC 0.5/1.0
-    assert "2026-01" in data["months"]
-    assert data["cells"]["2026-01"]["BCC"] >= 1.0
-    assert data["cells"]["2026-01"]["HCC"] >= 0.5
-    # Scenario children are not double-counted: capacity for 2026-01 BCC
-    # would be >= 2.0 if the scenario from test_scenarios were included
-    bcc_contributions = data["cells"]["2026-01"]["BCC"]
-    grid_project_bcc = 0.5 + 0.6  # from test_resource_grid_update (2026-01)
-    templated_bcc = 24.0  # basic-software template: 24 BCC roles at 1.0 FTE
-    assert bcc_contributions == pytest.approx(1.0 + grid_project_bcc + templated_bcc)
+def test_portfolio_capacity(client):
+    """Capacity adds up each family once; measured as a delta so the test does
+    not depend on what other tests left in the shared database."""
+    def bcc(month):
+        data = client.get("/api/portfolio/capacity").json()
+        assert data["locations"] == ["BCC", "HCC", "MCC"]
+        return data["cells"].get(month, {}).get("BCC", 0.0)
 
-    # Status filter
-    resp = client.get("/api/portfolio/capacity?statuses=won")
-    assert resp.json()["months"] == []
+    before = bcc("2031-03")
+    project = client.post("/api/projects", json={
+        "name": "Capacity delta", "company": "V", "status": "quoted",
+        "start_year": 2031, "start_month": 1, "end_year": 2031, "end_month": 6,
+    }).json()
+    feature_id = client.post(f"/api/projects/{project['id']}/features",
+                             json={"name": "F"}).json()["id"]
+    client.post(f"/api/features/{feature_id}/roles", json={
+        "name": "Dev", "location": "BCC", "level": "Senior", "ftes": 1.5,
+    })
+    assert bcc("2031-03") == pytest.approx(before + 1.5)
+
+    # A scenario without the crown does not count on top of its base
+    scenario = client.post(f"/api/projects/{project['id']}/clone",
+                           json={"name": "Alt", "as_scenario": True}).json()
+    assert scenario["base_project_id"] == project["id"]
+    assert bcc("2031-03") == pytest.approx(before + 1.5)
+
+    # The status filter is applied to the family's effective project
+    filtered = client.get("/api/portfolio/capacity", params={"statuses": "won"}).json()
+    assert filtered["cells"].get("2031-03", {}).get("BCC", 0.0) == pytest.approx(0.0)
 
 
 def test_export_import_roundtrip(client, project_id):

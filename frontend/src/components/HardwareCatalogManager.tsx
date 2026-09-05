@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
 import type { HardwareBilling, HardwareCatalogItem, HardwareCatalogItemInput, Meta } from '../types'
-import { Button, EmptyState, ErrorBanner, Input, Label, Select, Spinner } from './ui'
+import { Button, EmptyState, ErrorBanner, Input, Label, Select, Spinner, Stat } from './ui'
 import { formatEuro } from '../utils'
 
 const EMPTY_FORM: HardwareCatalogItemInput = {
@@ -22,18 +22,11 @@ function Pill({ tone, children }: { tone: 'sky' | 'amber' | 'slate'; children: R
     slate: 'bg-slate-800 text-slate-300 border-slate-700',
   }
   return (
-    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap ${tones[tone]}`}>
+    <span
+      className={`rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap ${tones[tone]}`}
+    >
       {children}
     </span>
-  )
-}
-
-function Stat({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2">
-      <div className="text-base font-semibold text-slate-100">{value}</div>
-      <div className="text-xs text-slate-500">{label}</div>
-    </div>
   )
 }
 
@@ -43,11 +36,7 @@ function Stat({ label, value }: { label: string; value: string | number }) {
  * contact details live here only — project hardware rows read the email from
  * the vendor's catalog entry.
  */
-export default function HardwareCatalogManager({
-  onChanged,
-}: {
-  onChanged?: () => void
-}) {
+export default function HardwareCatalogManager({ onChanged }: { onChanged?: () => void }) {
   const [items, setItems] = useState<HardwareCatalogItem[] | null>(null)
   const [meta, setMeta] = useState<Meta | null>(null)
   const [error, setError] = useState('')
@@ -79,7 +68,10 @@ export default function HardwareCatalogManager({
 
   useEffect(() => {
     reload()
-    api.getMeta().then(setMeta).catch((e) => setError(e.message))
+    api
+      .getMeta()
+      .then(setMeta)
+      .catch((e) => setError(e.message))
   }, [reload])
 
   const suppliers = useMemo(
@@ -118,6 +110,25 @@ export default function HardwareCatalogManager({
   }
 
   const sortArrow = (key: SortKey) => (key === sortKey ? (sortAsc ? ' ↑' : ' ↓') : '')
+  const ariaSort = (key: SortKey) =>
+    key === sortKey ? (sortAsc ? ('ascending' as const) : ('descending' as const)) : undefined
+  /** A sortable header is a real button, so the keyboard and screen readers get it too. */
+  const sortHeader = (key: SortKey, label: string, right = false) => (
+    <th
+      scope="col"
+      aria-sort={ariaSort(key)}
+      className={`px-3 py-2.5 ${right ? 'text-right' : ''}`}
+    >
+      <button
+        type="button"
+        onClick={() => toggleSort(key)}
+        className="cursor-pointer uppercase tracking-wide hover:text-slate-200"
+      >
+        {label}
+        {sortArrow(key)}
+      </button>
+    </th>
+  )
 
   const startEdit = (item: HardwareCatalogItem) => {
     setEditingId(item.id)
@@ -169,279 +180,264 @@ export default function HardwareCatalogManager({
 
   return (
     <div className="space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <p className="max-w-2xl text-sm text-slate-400">
-            Shared master list of hardware and tools. Adding an item to a project copies
-            its price and billing mode, so later catalog changes never alter an existing
-            quotation — supplier contact details stay here and are always read from the
-            vendor's entry.
-          </p>
-          {items && (
-            <div className="flex gap-2">
-              <Stat label="items" value={items.length} />
-              <Stat label="suppliers" value={suppliers.length} />
-              <Stat label="yearly / one-time" value={`${yearlyCount} / ${items.length - yearlyCount}`} />
-            </div>
-          )}
-        </div>
-
-        {error && <ErrorBanner message={error} />}
-
-        {items !== null && items.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            <div className="min-w-56 flex-1">
-              <Input
-                placeholder="Search item, supplier or ASPICE…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </div>
-            <div className="w-48">
-              <Select
-                value={supplierFilter}
-                onChange={(e) => setSupplierFilter(e.target.value)}
-              >
-                <option value="">All suppliers</option>
-                {suppliers.map((s) => (
-                  <option key={s}>{s}</option>
-                ))}
-              </Select>
-            </div>
-            <div className="w-40">
-              <Select
-                value={billingFilter}
-                onChange={(e) => setBillingFilter(e.target.value)}
-              >
-                <option value="">All billing</option>
-                <option value="yearly">Yearly</option>
-                <option value="once">One-time</option>
-              </Select>
-            </div>
-            {filtersActive && (
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  setSearch('')
-                  setSupplierFilter('')
-                  setBillingFilter('')
-                }}
-              >
-                Clear
-              </Button>
-            )}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <p className="max-w-2xl text-sm text-slate-400">
+          Shared master list of hardware and tools. Adding an item to a project copies its price and
+          billing mode, so later catalog changes never alter an existing quotation — supplier
+          contact details stay here and are always read from the vendor's entry.
+        </p>
+        {items && (
+          <div className="flex gap-2">
+            <Stat size="sm" label="items" value={items.length} />
+            <Stat size="sm" label="suppliers" value={suppliers.length} />
+            <Stat
+              label="yearly / one-time"
+              value={`${yearlyCount} / ${items.length - yearlyCount}`}
+            />
           </div>
         )}
+      </div>
 
-        {items === null ? (
-          <Spinner />
-        ) : items.length === 0 ? (
-          <EmptyState>No catalog items yet. Add the first one below.</EmptyState>
-        ) : visible.length === 0 ? (
-          <EmptyState>No items match the current filters.</EmptyState>
-        ) : (
-          <>
-            <div className="max-h-[45vh] overflow-auto rounded-lg border border-slate-800">
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 z-10 bg-slate-900">
-                  <tr className="border-b border-slate-700 text-left text-xs uppercase tracking-wide text-slate-400">
-                    <th
-                      className="cursor-pointer px-3 py-2.5 hover:text-slate-200"
-                      onClick={() => toggleSort('name')}
-                    >
-                      Item{sortArrow('name')}
-                    </th>
-                    <th className="px-3 py-2.5">ASPICE</th>
-                    <th className="px-3 py-2.5">Billing</th>
-                    <th
-                      className="cursor-pointer px-3 py-2.5 text-right hover:text-slate-200"
-                      onClick={() => toggleSort('unit_cost')}
-                    >
-                      Unit Cost{sortArrow('unit_cost')}
-                    </th>
-                    <th
-                      className="cursor-pointer px-3 py-2.5 hover:text-slate-200"
-                      onClick={() => toggleSort('supplier_name')}
-                    >
-                      Supplier{sortArrow('supplier_name')}
-                    </th>
-                    <th className="px-3 py-2.5">Contact</th>
-                    <th className="px-3 py-2.5" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {visible.map((item) => (
-                    <tr
-                      key={item.id}
-                      className={`border-b border-slate-800 last:border-0 hover:bg-slate-800/40 ${
-                        editingId === item.id ? 'bg-indigo-950/40' : ''
-                      }`}
-                    >
-                      <td className="px-3 py-2.5 font-medium text-slate-100">{item.name}</td>
-                      <td className="px-3 py-2.5">
-                        <Pill tone="slate">{item.aspice}</Pill>
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <Pill tone={item.billing === 'yearly' ? 'sky' : 'amber'}>
-                          {item.billing === 'yearly' ? 'Yearly' : 'One-time'}
-                        </Pill>
-                      </td>
-                      <td className="px-3 py-2.5 text-right whitespace-nowrap tabular-nums">
-                        {formatEuro(item.unit_cost)}
-                        {item.billing === 'yearly' && (
-                          <span className="text-xs text-slate-500">/yr</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap">{item.supplier_name || '—'}</td>
-                      <td className="px-3 py-2.5">
-                        {item.supplier_email ? (
-                          <a
-                            href={`mailto:${item.supplier_email}`}
-                            className="text-indigo-400 hover:underline"
-                          >
-                            {item.supplier_email}
-                          </a>
-                        ) : (
-                          <button
-                            onClick={() => startEdit(item)}
-                            className="text-xs text-slate-500 hover:text-indigo-400"
-                          >
-                            + add email
-                          </button>
-                        )}
-                      </td>
-                      <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                        {confirmDeleteId === item.id ? (
-                          <>
-                            <span className="mr-1 text-xs text-rose-300">Delete?</span>
-                            <Button variant="danger" onClick={() => remove(item.id)}>
-                              Yes
-                            </Button>
-                            <Button variant="ghost" onClick={() => setConfirmDeleteId(null)}>
-                              No
-                            </Button>
-                          </>
-                        ) : (
-                          <>
-                            <Button variant="ghost" onClick={() => startEdit(item)}>
-                              Edit
-                            </Button>
-                            <Button variant="ghost" onClick={() => setConfirmDeleteId(item.id)}>
-                              Delete
-                            </Button>
-                          </>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <p className="text-xs text-slate-500">
-              Showing {visible.length} of {items.length} items.
-              {' '}Deleting a catalog item keeps it on projects that already use it.
-            </p>
-          </>
-        )}
+      {error && <ErrorBanner message={error} />}
 
-        <div
-          ref={formRef}
-          className={`rounded-lg border p-4 ${
-            editingId === null
-              ? 'border-slate-800 bg-slate-900/60'
-              : 'border-indigo-800 bg-indigo-950/30'
-          }`}
-        >
-          <h4 className="mb-3 text-sm font-semibold text-slate-200">
-            {editingId === null ? 'Add catalog item' : `Edit “${form.name}”`}
-          </h4>
-          {meta === null ? (
-            <Spinner />
-          ) : (
-            <>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <div className="sm:col-span-2">
-                  <Label>Item name</Label>
-                  <Input
-                    placeholder="e.g. CANoe PRO (perpetual)"
-                    value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label>Unit cost (€)</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    className="text-right"
-                    value={form.unit_cost}
-                    onChange={(e) => setForm({ ...form, unit_cost: Number(e.target.value) })}
-                  />
-                </div>
-                <div>
-                  <Label>ASPICE process</Label>
-                  <Select
-                    value={form.aspice}
-                    onChange={(e) => setForm({ ...form, aspice: e.target.value })}
-                  >
-                    {meta.aspice_processes.map((p) => (
-                      <option key={p}>{p}</option>
-                    ))}
-                  </Select>
-                </div>
-                <div>
-                  <Label>Billing</Label>
-                  <Select
-                    value={form.billing}
-                    onChange={(e) =>
-                      setForm({ ...form, billing: e.target.value as HardwareBilling })
-                    }
-                  >
-                    {meta.hardware_billing.map((b) => (
-                      <option key={b} value={b}>
-                        {b === 'yearly' ? 'Yearly (per project year)' : 'One-time purchase'}
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-                <div />
-                <div>
-                  <Label>Supplier</Label>
-                  <Input
-                    placeholder="e.g. Vector"
-                    value={form.supplier_name}
-                    onChange={(e) => setForm({ ...form, supplier_name: e.target.value })}
-                  />
-                </div>
-                <div className="sm:col-span-2">
-                  <Label>Supplier email</Label>
-                  <Input
-                    type="email"
-                    placeholder="orders@supplier.com"
-                    value={form.supplier_email}
-                    onChange={(e) => setForm({ ...form, supplier_email: e.target.value })}
-                  />
-                </div>
-              </div>
-              <div className="mt-3 flex items-center justify-between gap-2">
-                <p className="text-xs text-slate-500">
-                  Supplier contact is stored once per vendor here and shown on every
-                  project that plans this item.
-                </p>
-                <div className="flex gap-2">
-                  {editingId !== null && (
-                    <Button variant="secondary" onClick={cancelEdit}>
-                      Cancel
-                    </Button>
-                  )}
-                  <Button onClick={save} disabled={saving || !form.name.trim()}>
-                    {saving ? 'Saving…' : editingId === null ? 'Add to Catalog' : 'Save Changes'}
-                  </Button>
-                </div>
-              </div>
-            </>
+      {items !== null && items.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          <div className="min-w-56 flex-1">
+            <Input
+              placeholder="Search item, supplier or ASPICE…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <div className="w-48">
+            <Select value={supplierFilter} onChange={(e) => setSupplierFilter(e.target.value)}>
+              <option value="">All suppliers</option>
+              {suppliers.map((s) => (
+                <option key={s}>{s}</option>
+              ))}
+            </Select>
+          </div>
+          <div className="w-40">
+            <Select value={billingFilter} onChange={(e) => setBillingFilter(e.target.value)}>
+              <option value="">All billing</option>
+              <option value="yearly">Yearly</option>
+              <option value="once">One-time</option>
+            </Select>
+          </div>
+          {filtersActive && (
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setSearch('')
+                setSupplierFilter('')
+                setBillingFilter('')
+              }}
+            >
+              Clear
+            </Button>
           )}
         </div>
+      )}
+
+      {items === null ? (
+        <Spinner />
+      ) : items.length === 0 ? (
+        <EmptyState>No catalog items yet. Add the first one below.</EmptyState>
+      ) : visible.length === 0 ? (
+        <EmptyState>No items match the current filters.</EmptyState>
+      ) : (
+        <>
+          <div className="max-h-[45vh] overflow-auto rounded-lg border border-slate-800">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 z-10 bg-slate-900">
+                <tr className="border-b border-slate-700 text-left text-xs uppercase tracking-wide text-slate-400">
+                  {sortHeader('name', 'Item')}
+                  <th scope="col" className="px-3 py-2.5">
+                    ASPICE
+                  </th>
+                  <th scope="col" className="px-3 py-2.5">
+                    Billing
+                  </th>
+                  {sortHeader('unit_cost', 'Unit Cost', true)}
+                  {sortHeader('supplier_name', 'Supplier')}
+                  <th scope="col" className="px-3 py-2.5">
+                    Contact
+                  </th>
+                  <th scope="col" className="px-3 py-2.5" />
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((item) => (
+                  <tr
+                    key={item.id}
+                    className={`border-b border-slate-800 last:border-0 hover:bg-slate-800/40 ${
+                      editingId === item.id ? 'bg-indigo-950/40' : ''
+                    }`}
+                  >
+                    <td className="px-3 py-2.5 font-medium text-slate-100">{item.name}</td>
+                    <td className="px-3 py-2.5">
+                      <Pill tone="slate">{item.aspice}</Pill>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <Pill tone={item.billing === 'yearly' ? 'sky' : 'amber'}>
+                        {item.billing === 'yearly' ? 'Yearly' : 'One-time'}
+                      </Pill>
+                    </td>
+                    <td className="px-3 py-2.5 text-right whitespace-nowrap tabular-nums">
+                      {formatEuro(item.unit_cost)}
+                      {item.billing === 'yearly' && (
+                        <span className="text-xs text-slate-500">/yr</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 whitespace-nowrap">{item.supplier_name || '—'}</td>
+                    <td className="px-3 py-2.5">
+                      {item.supplier_email ? (
+                        <a
+                          href={`mailto:${item.supplier_email}`}
+                          className="text-indigo-400 hover:underline"
+                        >
+                          {item.supplier_email}
+                        </a>
+                      ) : (
+                        <button
+                          onClick={() => startEdit(item)}
+                          className="text-xs text-slate-500 hover:text-indigo-400"
+                        >
+                          + add email
+                        </button>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                      {confirmDeleteId === item.id ? (
+                        <>
+                          <span className="mr-1 text-xs text-rose-300">Delete?</span>
+                          <Button variant="danger" onClick={() => remove(item.id)}>
+                            Yes
+                          </Button>
+                          <Button variant="ghost" onClick={() => setConfirmDeleteId(null)}>
+                            No
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button variant="ghost" onClick={() => startEdit(item)}>
+                            Edit
+                          </Button>
+                          <Button variant="ghost" onClick={() => setConfirmDeleteId(item.id)}>
+                            Delete
+                          </Button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-slate-500">
+            Showing {visible.length} of {items.length} items. Deleting a catalog item keeps it on
+            projects that already use it.
+          </p>
+        </>
+      )}
+
+      <div
+        ref={formRef}
+        className={`rounded-lg border p-4 ${
+          editingId === null
+            ? 'border-slate-800 bg-slate-900/60'
+            : 'border-indigo-800 bg-indigo-950/30'
+        }`}
+      >
+        <h4 className="mb-3 text-sm font-semibold text-slate-200">
+          {editingId === null ? 'Add catalog item' : `Edit “${form.name}”`}
+        </h4>
+        {meta === null ? (
+          <Spinner />
+        ) : (
+          <>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="sm:col-span-2">
+                <Label>Item name</Label>
+                <Input
+                  placeholder="e.g. CANoe PRO (perpetual)"
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label>Unit cost (€)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  className="text-right"
+                  value={form.unit_cost}
+                  onChange={(e) => setForm({ ...form, unit_cost: Number(e.target.value) })}
+                />
+              </div>
+              <div>
+                <Label>ASPICE process</Label>
+                <Select
+                  value={form.aspice}
+                  onChange={(e) => setForm({ ...form, aspice: e.target.value })}
+                >
+                  {meta.aspice_processes.map((p) => (
+                    <option key={p}>{p}</option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <Label>Billing</Label>
+                <Select
+                  value={form.billing}
+                  onChange={(e) => setForm({ ...form, billing: e.target.value as HardwareBilling })}
+                >
+                  {meta.hardware_billing.map((b) => (
+                    <option key={b} value={b}>
+                      {b === 'yearly' ? 'Yearly (per project year)' : 'One-time purchase'}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div />
+              <div>
+                <Label>Supplier</Label>
+                <Input
+                  placeholder="e.g. Vector"
+                  value={form.supplier_name}
+                  onChange={(e) => setForm({ ...form, supplier_name: e.target.value })}
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <Label>Supplier email</Label>
+                <Input
+                  type="email"
+                  placeholder="orders@supplier.com"
+                  value={form.supplier_email}
+                  onChange={(e) => setForm({ ...form, supplier_email: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="mt-3 flex items-center justify-between gap-2">
+              <p className="text-xs text-slate-500">
+                Supplier contact is stored once per vendor here and shown on every project that
+                plans this item.
+              </p>
+              <div className="flex gap-2">
+                {editingId !== null && (
+                  <Button variant="secondary" onClick={cancelEdit}>
+                    Cancel
+                  </Button>
+                )}
+                <Button onClick={save} disabled={saving || !form.name.trim()}>
+                  {saving ? 'Saving…' : editingId === null ? 'Add to Catalog' : 'Save Changes'}
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
-    )
+    </div>
+  )
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
-import type { HardwareCatalogItem, HardwareItemInput, Project } from '../types'
+import type { HardwareCatalogItem, HardwareItemInput, HardwareItemUpsert, Project } from '../types'
 import { Button, ErrorBanner, Input, Label, Modal, Select, Spinner } from './ui'
 import { formatEuro } from '../utils'
 import {
@@ -88,8 +88,7 @@ export default function HardwareWizardModal({
 
   const setDebuggerVendor = (choice: DebuggerChoice) => {
     setDebuggerChoice(choice)
-    const names =
-      choice === 'lauterbach' ? BENCH_SLOTS.debuggerLauterbach : BENCH_SLOTS.debuggerUde
+    const names = choice === 'lauterbach' ? BENCH_SLOTS.debuggerLauterbach : BENCH_SLOTS.debuggerUde
     setDebuggerId(slotOptions(catalog ?? [], names)[0]?.id ?? null)
   }
 
@@ -117,19 +116,28 @@ export default function HardwareWizardModal({
       licenceIds,
     })
   }, [
-    catalog, project, benches, amtsBenches,
-    pcId, powerId, debuggerId, vectorBoxId, amtsBoardId, licenceIds,
+    catalog,
+    project,
+    benches,
+    amtsBenches,
+    pcId,
+    powerId,
+    debuggerId,
+    vectorBoxId,
+    amtsBoardId,
+    licenceIds,
   ])
 
   const generate = async () => {
     setBusy(true)
     setError('')
     try {
-      if (replace && existingCount > 0) {
-        const plan = await api.getHardwarePlan(project.id)
-        for (const item of plan.items) await api.deleteHardwareItem(item.id)
-      }
-      for (const row of rows) await api.createHardwareItem(project.id, row)
+      // One whole-plan save: replacing sends only the generated rows, adding
+      // keeps the stored rows (by id) in front of them. Either way a failure
+      // midway can no longer leave a half-deleted plan behind.
+      const current = await api.getHardwarePlan(project.id)
+      const kept: HardwareItemUpsert[] = replace ? [] : current.items
+      await api.replaceHardwarePlan(project.id, [...kept, ...rows], current.version)
       onGenerated()
       onClose()
     } catch (e) {
@@ -186,13 +194,13 @@ export default function HardwareWizardModal({
                   {head.engineerFtes} engineering FTE
                   {head.engineerFtes === 1 ? '' : 's'} in this project
                   {head.excluded.length > 0 && (
-                    <> — excluding {head.excluded.join(', ')} ({head.leadFtes} FTE)</>
+                    <>
+                      {' '}
+                      — excluding {head.excluded.join(', ')} ({head.leadFtes} FTE)
+                    </>
                   )}
                   . Rounded up to {head.users} user{head.users === 1 ? '' : 's'}
-                  {usersPerBench > 1 && (
-                    <>, shared {usersPerBench} per bench</>
-                  )}
-                  .
+                  {usersPerBench > 1 && <>, shared {usersPerBench} per bench</>}.
                 </p>
                 <div className="grid grid-cols-3 gap-3">
                   <div>
@@ -248,9 +256,7 @@ export default function HardwareWizardModal({
 
               {/* --- per bench --------------------------------------------- */}
               <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-4">
-                <h4 className="mb-1 text-sm font-semibold text-slate-200">
-                  Every bench gets
-                </h4>
+                <h4 className="mb-1 text-sm font-semibold text-slate-200">Every bench gets</h4>
                 <p className="mb-3 text-xs text-slate-500">
                   One of each, times {benches} bench{benches === 1 ? '' : 'es'}.
                   {amtsBenches > 0 &&
@@ -342,9 +348,7 @@ export default function HardwareWizardModal({
 
               {/* --- licences ---------------------------------------------- */}
               <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-4">
-                <h4 className="mb-1 text-sm font-semibold text-slate-200">
-                  Project licences
-                </h4>
+                <h4 className="mb-1 text-sm font-semibold text-slate-200">Project licences</h4>
                 <p className="mb-3 text-xs text-slate-500">
                   One of each for the whole project. Pick the variant you licence.
                 </p>
@@ -446,8 +450,8 @@ export default function HardwareWizardModal({
               )}
 
               <p className="text-xs text-slate-500">
-                Everything generated stays fully editable in the table afterwards —
-                quantities, years, prices and rows you want to remove.
+                Everything generated stays fully editable in the table afterwards — quantities,
+                years, prices and rows you want to remove.
               </p>
             </div>
           </div>

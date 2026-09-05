@@ -12,6 +12,8 @@ from .. import models
 from ..config import LOCATIONS
 from ..database import get_db
 from ..services import calculations
+from ..services.loading import project_tree
+from ..services.scenarios import effective_projects
 
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
@@ -20,14 +22,23 @@ router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 def capacity(statuses: str | None = None, db: Session = Depends(get_db)):
     """Aggregate FTE demand per month and location across projects.
 
-    statuses: optional comma-separated filter (e.g. "draft,quoted,won").
-    Scenario children are excluded — only base projects count.
+    statuses: optional comma-separated filter (e.g. "draft,quoted,won"). Omitting
+    the parameter means every status; sending it empty means no status at all,
+    so a page whose user deselected every filter shows nothing rather than all.
+    Each scenario family counts once: its winning scenario when one is marked,
+    otherwise the base project.
     """
-    query = db.query(models.Project).filter(models.Project.base_project_id.is_(None))
-    if statuses:
+    wanted: list[str] | None = None
+    if statuses is not None:
         wanted = [s.strip() for s in statuses.split(",") if s.strip()]
-        query = query.filter(models.Project.status.in_(wanted))
-    projects = query.all()
+        if not wanted:
+            return {
+                "months": [], "locations": LOCATIONS, "cells": {},
+                "totals_by_month": {}, "project_count": 0,
+            }
+    projects = effective_projects(db.query(models.Project).options(project_tree()).all())
+    if wanted is not None:
+        projects = [project for project in projects if project.status in wanted]
 
     cells: dict[str, dict[str, float]] = {}
     for project in projects:

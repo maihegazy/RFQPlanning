@@ -1,13 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { api } from '../api'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { api, isConflict } from '../api'
 import type {
   HardwareBilling,
   HardwareCatalogItem,
   HardwareItemInput,
+  HardwareItemUpsert,
+  HardwarePlan,
   Meta,
   Project,
 } from '../types'
 import { Button, Card, EmptyState, ErrorBanner, Input, Select, Spinner } from '../components/ui'
+import { ConflictBanner } from '../components/ConflictBanner'
 import HardwareCatalogModal from '../components/HardwareCatalogModal'
 import HardwareWizardModal from '../components/HardwareWizardModal'
 import { downloadBlob } from '../download'
@@ -38,61 +41,81 @@ function rowYearCosts(row: HardwareItemInput, startYear: number): Record<number,
   return costs
 }
 
-export default function HardwareTab({
-  project,
-  meta,
-}: {
-  project: Project
-  meta: Meta
-}) {
+export default function HardwareTab({ project, meta }: { project: Project; meta: Meta }) {
   const years = projectYears(project.start_year, project.end_year)
   const [rows, setRows] = useState<EditRow[] | null>(null)
   const [deletedIds, setDeletedIds] = useState<number[]>([])
   const [catalog, setCatalog] = useState<HardwareCatalogItem[]>([])
   const [showCatalog, setShowCatalog] = useState(false)
   const [showWizard, setShowWizard] = useState(false)
+  const [warnings, setWarnings] = useState<string[]>([])
+  /* The project version the plan was loaded at; every save is built from it. */
+  const [version, setVersion] = useState<number | undefined>(undefined)
   const [error, setError] = useState('')
+  const [conflict, setConflict] = useState('')
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<number | null>(null)
+  /* Switching scenarios while a plan is still loading must not let the slower
+   * response land on the newer project. */
+  const loadSeq = useRef(0)
+
+  const applyPlan = useCallback((plan: HardwarePlan) => {
+    setWarnings(plan.warnings ?? [])
+    setVersion(plan.version)
+    setRows(
+      plan.items.map((item) => ({
+        key: nextKey++,
+        id: item.id,
+        catalog_item_id: item.catalog_item_id,
+        name: item.name,
+        aspice: item.aspice,
+        billing: item.billing,
+        unit_cost: item.unit_cost,
+        qty: item.qty,
+        years: item.years,
+        supplier_name: item.supplier_name,
+        supplier_email: item.supplier_email,
+        dirty: false,
+      })),
+    )
+    setDeletedIds([])
+  }, [])
 
   const reload = useCallback(() => {
+    const seq = loadSeq.current + 1
+    loadSeq.current = seq
     api
       .getHardwarePlan(project.id)
       .then((plan) => {
-        setRows(
-          plan.items.map((item) => ({
-            key: nextKey++,
-            id: item.id,
-            catalog_item_id: item.catalog_item_id,
-            name: item.name,
-            aspice: item.aspice,
-            billing: item.billing,
-            unit_cost: item.unit_cost,
-            qty: item.qty,
-            years: item.years,
-            supplier_name: item.supplier_name,
-            supplier_email: item.supplier_email,
-            dirty: false,
-          })),
-        )
-        setDeletedIds([])
+        if (seq === loadSeq.current) applyPlan(plan)
       })
-      .catch((e) => setError(e.message))
-  }, [project.id])
+      .catch((e) => {
+        if (seq === loadSeq.current) setError(e.message)
+      })
+  }, [applyPlan, project.id])
 
   const reloadCatalog = useCallback(() => {
-    api.listHardwareCatalog().then(setCatalog).catch(() => setCatalog([]))
+    api
+      .listHardwareCatalog()
+      .then(setCatalog)
+      .catch(() => setCatalog([]))
   }, [])
 
   useEffect(() => {
+    // A new project starts from a blank slate rather than the previous plan.
+    setRows(null)
+    setDeletedIds([])
+    setError('')
+    setConflict('')
+    setSavedAt(null)
     reload()
     reloadCatalog()
   }, [reload, reloadCatalog])
 
   const updateRow = (key: number, patch: Partial<EditRow>) => {
-    setRows((prev) =>
-      prev?.map((row) => (row.key === key ? { ...row, ...patch, dirty: true } : row)) ??
-      prev,
+    setRows(
+      (prev) =>
+        prev?.map((row) => (row.key === key ? { ...row, ...patch, dirty: true } : row)) ?? prev,
     )
   }
 
@@ -156,40 +179,34 @@ export default function HardwareTab({
     setRows((prev) => prev?.filter((r) => r.key !== row.key) ?? prev)
   }
 
-  const hasChanges =
-    deletedIds.length > 0 || (rows?.some((row) => row.dirty) ?? false)
+  const hasChanges = deletedIds.length > 0 || (rows?.some((row) => row.dirty) ?? false)
 
   const save = async () => {
     if (!rows) return
     setSaving(true)
     setError('')
+    setConflict('')
     try {
-      for (const id of deletedIds) {
-        await api.deleteHardwareItem(id)
-      }
-      for (const row of rows) {
-        if (!row.dirty) continue
-        const payload: HardwareItemInput = {
-          catalog_item_id: row.catalog_item_id,
-          name: row.name.trim() || 'Hardware item',
-          aspice: row.aspice,
-          billing: row.billing,
-          unit_cost: row.unit_cost,
-          qty: row.qty,
-          years: row.years,
-          supplier_name: row.supplier_name,
-          supplier_email: row.supplier_email,
-        }
-        if (row.id === null) {
-          await api.createHardwareItem(project.id, payload)
-        } else {
-          await api.updateHardwareItem(row.id, payload)
-        }
-      }
+      // One request for the whole plan: rows keep their ids, removed rows go,
+      // and a rejected row leaves the stored plan exactly as it was.
+      const items: HardwareItemUpsert[] = rows.map((row) => ({
+        id: row.id,
+        catalog_item_id: row.catalog_item_id,
+        name: row.name.trim() || 'Hardware item',
+        aspice: row.aspice,
+        billing: row.billing,
+        unit_cost: row.unit_cost,
+        qty: row.qty,
+        years: row.years,
+        supplier_name: row.supplier_name,
+        supplier_email: row.supplier_email,
+      }))
+      const plan = await api.replaceHardwarePlan(project.id, items, version)
+      applyPlan(plan)
       setSavedAt(Date.now())
-      reload()
     } catch (e) {
-      setError((e as Error).message)
+      if (isConflict(e)) setConflict(e.message)
+      else setError((e as Error).message)
     } finally {
       setSaving(false)
     }
@@ -249,7 +266,6 @@ export default function HardwareTab({
                   if (e.target.value) addFromCatalog(Number(e.target.value))
                 }}
               >
-              <option value="">+ Add from catalog…</option>
                 <option value="">+ Add from catalog…</option>
                 {catalogBySupplier.map(([supplier, supplierItems]) => (
                   <optgroup key={supplier} label={supplier}>
@@ -286,15 +302,27 @@ export default function HardwareTab({
             <ErrorBanner message={error} />
           </div>
         )}
+        {conflict && (
+          <div className="mb-4">
+            <ConflictBanner message={conflict} onReload={reload} />
+          </div>
+        )}
+        {warnings.length > 0 && (
+          <div className="mb-4 rounded-lg border border-amber-800 bg-amber-950/40 px-4 py-2 text-sm text-amber-200">
+            {warnings.map((warning) => (
+              <div key={warning}>⚠ {warning}</div>
+            ))}
+          </div>
+        )}
         {savedAt !== null && !hasChanges && !error && (
           <div className="mb-4 rounded-lg border border-emerald-800 bg-emerald-950/50 px-4 py-2 text-sm text-emerald-300">
             ✓ Hardware plan saved.
           </div>
         )}
         <p className="mb-4 text-sm text-slate-400">
-          Plan the hardware and tools this quotation needs. Yearly items are paid
-          for every selected year; one-time purchases land in their single
-          purchase year. Alternatives can be captured with quantity 0.
+          Plan the hardware and tools this quotation needs. Yearly items are paid for every selected
+          year; one-time purchases land in their single purchase year. Alternatives can be captured
+          with quantity 0.
         </p>
 
         {rows.length === 0 ? (
@@ -377,9 +405,7 @@ export default function HardwareTab({
                         step="0.01"
                         className="w-28 text-right"
                         value={row.unit_cost}
-                        onChange={(e) =>
-                          updateRow(row.key, { unit_cost: Number(e.target.value) })
-                        }
+                        onChange={(e) => updateRow(row.key, { unit_cost: Number(e.target.value) })}
                       />
                     </td>
                     <td className="py-2 pr-2">
@@ -439,9 +465,7 @@ export default function HardwareTab({
                             className="min-w-36"
                             value={row.supplier_name}
                             placeholder="Supplier"
-                            onChange={(e) =>
-                              updateRow(row.key, { supplier_name: e.target.value })
-                            }
+                            onChange={(e) => updateRow(row.key, { supplier_name: e.target.value })}
                           />
                           <span className="mt-1 block text-xs text-slate-500">
                             contact from catalog

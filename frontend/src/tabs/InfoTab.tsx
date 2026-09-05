@@ -4,13 +4,7 @@ import type { Project, ValidationResult } from '../types'
 import { Button, Card, ErrorBanner, Input, Label, Select } from '../components/ui'
 import { MONTH_NAMES } from '../utils'
 
-export default function InfoTab({
-  project,
-  onSaved,
-}: {
-  project: Project
-  onSaved: () => void
-}) {
+export default function InfoTab({ project, onSaved }: { project: Project; onSaved: () => void }) {
   const [name, setName] = useState(project.name)
   const [company, setCompany] = useState(project.company)
   const [startYear, setStartYear] = useState(project.start_year)
@@ -36,9 +30,21 @@ export default function InfoTab({
     setWinProb(project.win_probability_pct)
     setLostReason(project.lost_reason ?? '')
     setError('')
-    setSaved(false)
     setValidation(null)
   }, [project])
+
+  // A save triggers a reload of the same project, which must not wipe its own
+  // "Saved" flash; only another project (a scenario switch) or an edit does.
+  useEffect(() => {
+    setSaved(false)
+  }, [project.id])
+
+  const edit =
+    <T,>(setter: (value: T) => void) =>
+    (value: T) => {
+      setter(value)
+      setSaved(false)
+    }
 
   const save = async () => {
     setSaving(true)
@@ -80,42 +86,64 @@ export default function InfoTab({
           {error && <ErrorBanner message={error} />}
           <div>
             <Label>Project name</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} />
+            <Input
+              aria-label="Project name"
+              value={name}
+              onChange={(e) => edit(setName)(e.target.value)}
+            />
           </div>
           <div>
             <Label>Company</Label>
-            <Input value={company} onChange={(e) => setCompany(e.target.value)} />
+            <Input
+              aria-label="Company"
+              value={company}
+              onChange={(e) => edit(setCompany)(e.target.value)}
+            />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label>Start</Label>
               <div className="flex gap-2">
-                <Select value={startMonth} onChange={(e) => setStartMonth(Number(e.target.value))}>
+                <Select
+                  aria-label="Start month"
+                  value={startMonth}
+                  onChange={(e) => edit(setStartMonth)(Number(e.target.value))}
+                >
                   {MONTH_NAMES.map((m, i) => (
-                    <option key={m} value={i + 1}>{m}</option>
+                    <option key={m} value={i + 1}>
+                      {m}
+                    </option>
                   ))}
                 </Select>
                 <Input
                   type="number"
+                  aria-label="Start year"
                   className="w-24"
                   value={startYear}
-                  onChange={(e) => setStartYear(Number(e.target.value))}
+                  onChange={(e) => edit(setStartYear)(Number(e.target.value))}
                 />
               </div>
             </div>
             <div>
               <Label>End</Label>
               <div className="flex gap-2">
-                <Select value={endMonth} onChange={(e) => setEndMonth(Number(e.target.value))}>
+                <Select
+                  aria-label="End month"
+                  value={endMonth}
+                  onChange={(e) => edit(setEndMonth)(Number(e.target.value))}
+                >
                   {MONTH_NAMES.map((m, i) => (
-                    <option key={m} value={i + 1}>{m}</option>
+                    <option key={m} value={i + 1}>
+                      {m}
+                    </option>
                   ))}
                 </Select>
                 <Input
                   type="number"
+                  aria-label="End year"
                   className="w-24"
                   value={endYear}
-                  onChange={(e) => setEndYear(Number(e.target.value))}
+                  onChange={(e) => edit(setEndYear)(Number(e.target.value))}
                 />
               </div>
             </div>
@@ -123,9 +151,15 @@ export default function InfoTab({
           <div className="grid grid-cols-2 gap-4 border-t border-slate-800 pt-4">
             <div>
               <Label>RFQ Status</Label>
-              <Select value={status} onChange={(e) => setStatus(e.target.value)}>
+              <Select
+                aria-label="RFQ status"
+                value={status}
+                onChange={(e) => edit(setStatus)(e.target.value)}
+              >
                 {['draft', 'quoted', 'won', 'lost'].map((s) => (
-                  <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+                  <option key={s} value={s}>
+                    {s.charAt(0).toUpperCase() + s.slice(1)}
+                  </option>
                 ))}
               </Select>
             </div>
@@ -134,11 +168,12 @@ export default function InfoTab({
                 <Label>Win probability (%)</Label>
                 <Input
                   type="number"
+                  aria-label="Win probability (%)"
                   min={0}
                   max={100}
                   step={5}
                   value={winProb}
-                  onChange={(e) => setWinProb(Number(e.target.value))}
+                  onChange={(e) => edit(setWinProb)(Number(e.target.value))}
                 />
               </div>
             )}
@@ -146,8 +181,9 @@ export default function InfoTab({
               <div className="col-span-2">
                 <Label>Lost reason</Label>
                 <Input
+                  aria-label="Lost reason"
                   value={lostReason}
-                  onChange={(e) => setLostReason(e.target.value)}
+                  onChange={(e) => edit(setLostReason)(e.target.value)}
                   placeholder="e.g. Competitor undercut on price"
                 />
               </div>
@@ -164,12 +200,16 @@ export default function InfoTab({
 
       <Card
         title="Project Validation"
-        actions={<Button variant="secondary" onClick={validate}>Run Validation</Button>}
+        actions={
+          <Button variant="secondary" onClick={validate}>
+            Run Validation
+          </Button>
+        }
       >
         {validation === null ? (
           <p className="text-sm text-slate-500">
-            Run validation to check the project is complete and consistent before
-            generating reports.
+            Run validation to check the project is complete and consistent before generating
+            reports.
           </p>
         ) : validation.valid ? (
           <div className="rounded-lg border border-emerald-800 bg-emerald-950/50 px-4 py-3 text-sm text-emerald-300">

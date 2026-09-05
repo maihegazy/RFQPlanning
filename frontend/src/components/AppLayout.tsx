@@ -3,7 +3,6 @@ import { Link, Outlet, useLocation } from 'react-router-dom'
 import {
   ChevronDown,
   ChevronUp,
-  CircleUser,
   ClipboardList,
   Cpu,
   Menu,
@@ -12,6 +11,8 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { useTheme } from '../theme/ThemeContext'
+import ErrorBoundary from './ErrorBoundary'
+import { VaultDialogHost } from '../vault/VaultGate'
 
 /** Monochrome line icons: they inherit `currentColor`, so the theme drives them. */
 type NavIcon = LucideIcon
@@ -49,10 +50,19 @@ const GROUPS: NavGroup[] = [
       {
         to: '/hardware',
         label: 'Overview',
-        active: (p) => p === '/hardware' || (p.startsWith('/hardware/') && p !== '/hardware/process'),
+        active: (p) =>
+          p === '/hardware' || (p.startsWith('/hardware/') && p !== '/hardware/process'),
       },
-      { to: '/hardware-catalog', label: 'Catalog', active: (p) => p.startsWith('/hardware-catalog') },
-      { to: '/hardware/process', label: 'Ordering Process', active: (p) => p === '/hardware/process' },
+      {
+        to: '/hardware-catalog',
+        label: 'Catalog',
+        active: (p) => p.startsWith('/hardware-catalog'),
+      },
+      {
+        to: '/hardware/process',
+        label: 'Ordering Process',
+        active: (p) => p === '/hardware/process',
+      },
     ],
   },
 ]
@@ -126,14 +136,18 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
                 >
                   <Icon
                     className={`h-4.5 w-4.5 shrink-0 ${
-                      isActiveGroup ? 'text-[var(--sidebar-accent)]' : 'text-[var(--sidebar-idle-icon)]'
+                      isActiveGroup
+                        ? 'text-[var(--sidebar-accent)]'
+                        : 'text-[var(--sidebar-idle-icon)]'
                     }`}
                     strokeWidth={1.75}
                   />
                   <span className="flex-1 text-left">{label}</span>
                   <Chevron
                     className={`h-4 w-4 shrink-0 ${
-                      isActiveGroup ? 'text-[var(--sidebar-accent)]' : 'text-[var(--sidebar-idle-icon)]'
+                      isActiveGroup
+                        ? 'text-[var(--sidebar-accent)]'
+                        : 'text-[var(--sidebar-idle-icon)]'
                     }`}
                     strokeWidth={2}
                   />
@@ -243,19 +257,16 @@ export default function AppLayout() {
 
           <div className="flex items-center gap-2">
             <ThemeToggle />
-            <button
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-700 bg-slate-800 text-slate-200 transition-colors hover:text-slate-100"
-              title="Account"
-              aria-label="Account"
-            >
-              <CircleUser className="h-5 w-5" strokeWidth={1.75} />
-            </button>
           </div>
         </header>
 
         <main>
-          <Outlet />
+          {/* Keyed by path so a page that failed to render is retried on navigation. */}
+          <ErrorBoundary key={location.pathname}>
+            <Outlet />
+          </ErrorBoundary>
         </main>
+        <VaultDialogHost />
       </div>
     </div>
   )

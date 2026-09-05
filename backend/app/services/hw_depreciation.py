@@ -13,11 +13,26 @@ against ORM rows, Pydantic models or plain stubs alike. Assets carry
 import datetime
 from typing import Any
 
-from ..config import HW_ASSET_STATUSES, HW_LEASING_MONTHS, HW_PURCHASE_TYPES
+from ..config import (
+    DATE_WINDOW_YEARS,
+    HW_ASSET_STATUSES,
+    HW_LEASING_MONTHS,
+    HW_PURCHASE_TYPES,
+)
 
 LEASING = "LEASING"
 PURCHASE = "PURCHASE"
 PLANNED_PURCHASE = "PLANNED PURCHASE"
+NOT_PURCHASED = "NOT PURCHASED"
+KNOWN_KINDS = (LEASING, PURCHASE, PLANNED_PURCHASE, NOT_PURCHASED)
+
+# A date outside this window is a typo, not a year to report on: it neither widens
+# the span (one mistyped 0225 would otherwise hide the real 2025 rows) nor counts.
+FIRST_YEAR, LAST_YEAR = DATE_WINDOW_YEARS
+
+# Licenses expired longer ago than this drop off the renewal list; the risk counters
+# still count them, so nothing is hidden from the totals.
+EXPIRED_HORIZON_DAYS = 365
 
 # Guard against a stray year typo (e.g. 2205) blowing the summary up into
 # thousands of rows; the sheet only ever carried a decade.
@@ -55,6 +70,54 @@ def _label(value: Any) -> str:
     return str(value or "").strip() or UNSPECIFIED
 
 
+def _in_window(value: datetime.date) -> bool:
+    return FIRST_YEAR <= value.year <= LAST_YEAR
+
+
+def uncounted_reason(kind: str, purchase_date: Any, end_date: Any, cost: Any) -> str | None:
+    """Why a row contributes nothing to any year, or None when it counts.
+
+    A row that is deliberately free of cost (Not Purchased, or a zero amount) is
+    not a problem and gets None too. Everything else that the engine silently
+    values at zero is named here, so the registers can flag it instead of leaving
+    the reader to notice a dash.
+    """
+    t = _kind(kind)
+    if not t:
+        return "no purchase type"
+    if t not in KNOWN_KINDS:
+        return f"unknown purchase type '{str(kind).strip()}'"
+    if t == NOT_PURCHASED or _money(cost) == 0:
+        return None
+
+    purchase = _as_date(purchase_date)
+    if purchase is None:
+        return "no purchase date"
+    if not _in_window(purchase):
+        return f"purchase date outside {FIRST_YEAR}-{LAST_YEAR}"
+    if t != LEASING:
+        return None
+
+    end = _as_date(end_date)
+    if end is None:
+        return "no end date"
+    if not _in_window(end):
+        return f"end date outside {FIRST_YEAR}-{LAST_YEAR}"
+    if end < purchase:
+        return "end date before purchase date"
+    return None
+
+
+def asset_uncounted_reason(asset: Any) -> str | None:
+    return uncounted_reason(asset.purchase_type, asset.purchase_date, asset.eol_date,
+                            asset.purchase_cost)
+
+
+def license_uncounted_reason(license_row: Any) -> str | None:
+    return uncounted_reason(license_row.depreciation, license_row.purchase_date,
+                            license_row.termination_date, license_row.purchase_cost)
+
+
 def complete_months(a: datetime.date, b: datetime.date) -> int:
     """Excel's DATEDIF(a, b, "m"): whole months elapsed between two dates."""
     months = (b.year - a.year) * 12 + (b.month - a.month)
@@ -74,6 +137,10 @@ def year_cost(year: int, kind: str, purchase_date: datetime.date | None,
         end_date = _as_date(end_date)
         if purchase_date is None or end_date is None:
             return 0.0
+        # A date outside the window is a typo (see `uncounted_reason`): the row is
+        # flagged instead of accruing for two hundred years.
+        if not _in_window(purchase_date) or not _in_window(end_date):
+            return 0.0
         start = max(purchase_date, datetime.date(year, 1, 1))
         end = min(end_date, datetime.date(year, 12, 31))
         if start > end:
@@ -84,7 +151,9 @@ def year_cost(year: int, kind: str, purchase_date: datetime.date | None,
         return total / HW_LEASING_MONTHS * months
 
     if t == PURCHASE:
-        return total if purchase_date is not None and purchase_date.year == year else 0.0
+        if purchase_date is None or not _in_window(purchase_date):
+            return 0.0
+        return total if purchase_date.year == year else 0.0
 
     return 0.0  # Planned Purchase and Not Purchased never hit the actual budget.
 
@@ -119,8 +188,14 @@ def _row_year_costs(kind: str, purchase_date: datetime.date | None,
                     end_date: datetime.date | None, cost: float,
                     years: list[int]) -> dict[str, Any]:
     raw = [year_cost(year, kind, purchase_date, end_date, cost) for year in years]
+    # Cells are rounded for display; totals are rounded once from the unrounded
+    # values, the way the sheet sums full precision, so a register footer and the
+    # summary agree to the cent.
     return {
-        "per_year": {str(year): round(value, 2) for year, value in zip(years, raw)},
+        "per_year": {
+            str(year): round(value, 2) for year, value in zip(years, raw, strict=True)
+        },
+        "raw": raw,
         "total": round(sum(raw), 2),
     }
 
@@ -143,16 +218,16 @@ def year_span(assets: Any, licenses: Any, extra_years: Any = (),
     (project window, budget-adjustment years), falling back to the current year
     when the registers are empty.
     """
-    years = {int(year) for year in extra_years if year}
+    years = {int(year) for year in extra_years if year and FIRST_YEAR <= int(year) <= LAST_YEAR}
     for asset in assets:
         for value in (asset.purchase_date, asset.eol_date):
             found = _as_date(value)
-            if found is not None:
+            if found is not None and _in_window(found):
                 years.add(found.year)
     for license_row in licenses:
         for value in (license_row.purchase_date, license_row.termination_date):
             found = _as_date(value)
-            if found is not None:
+            if found is not None and _in_window(found):
                 years.add(found.year)
 
     if not years:
@@ -184,8 +259,9 @@ def renewal_risk(licenses: Any, today: datetime.date) -> dict[str, int]:
 
 def expiring_licenses(licenses: Any, today: datetime.date,
                       project_name_by_id: dict[int, str] | None = None,
-                      horizon_days: int = EXPIRY_HORIZON_DAYS) -> list[dict]:
-    """Already-expired and soon-to-expire licenses, soonest first."""
+                      horizon_days: int = EXPIRY_HORIZON_DAYS,
+                      expired_within_days: int = EXPIRED_HORIZON_DAYS) -> list[dict]:
+    """Recently expired and soon-to-expire licenses, soonest first."""
     names = project_name_by_id or {}
     rows = []
     for license_row in licenses:
@@ -193,7 +269,7 @@ def expiring_licenses(licenses: Any, today: datetime.date,
         if expires is None:
             continue
         days_left = (expires - today).days
-        if days_left > horizon_days:
+        if days_left > horizon_days or days_left < -expired_within_days:
             continue
         project_id = getattr(license_row, "hw_project_id", None)
         rows.append({
@@ -294,7 +370,8 @@ def _budget_rows(assets: Any, licenses: Any, adjustments: Any,
         raw.append((
             year,
             sum(_asset_year_cost(a, year) for a in assets) + special["assets"].get(year, 0.0),
-            sum(_license_year_cost(l, year) for l in licenses) + special["licenses"].get(year, 0.0),
+            sum(_license_year_cost(row, year) for row in licenses)
+            + special["licenses"].get(year, 0.0),
             _planned_cost(assets, "purchase_type", year),
             _planned_cost(licenses, "depreciation", year),
         ))
@@ -383,6 +460,10 @@ def summarize(assets: Any, licenses: Any, adjustments: Any,
         "dashboard": _dashboard(budget_assets, budget_licenses, totals, budget_total),
         "asset_count": len(assets),
         "license_count": len(licenses),
+        "uncounted_rows": (
+            sum(1 for a in assets if asset_uncounted_reason(a))
+            + sum(1 for row in licenses if license_uncounted_reason(row))
+        ),
         "adjustments": _adjustment_rows(adjustments),
     }
 
@@ -420,4 +501,5 @@ def overview_summary(assets: Any, licenses: Any, adjustments: Any,
         "project_count": len(projects),
         "asset_count": summary["asset_count"],
         "license_count": summary["license_count"],
+        "uncounted_rows": summary["uncounted_rows"],
     }

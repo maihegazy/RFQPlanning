@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import {
+  assetUncountedReason,
   assetYearCost,
   completeMonths,
+  FIRST_YEAR,
+  LAST_YEAR,
+  licenseUncountedReason,
   licenseYearCost,
   MAX_SPAN_YEARS,
   parseIsoDate,
   perYear,
+  uncountedReason,
   yearCost,
   yearSpan,
   type DepreciableAsset,
@@ -15,16 +20,86 @@ import {
 /** Rows lifted straight out of the customer's workbook (Licenses sheet). These
  *  are the numbers the sheet shows today; the engine has to reproduce them. */
 const GOLDEN = [
-  { purchase: '2025-07-02', end: '2028-07-02', cost: 7157.35, kind: 'Leasing', year: 2025, expected: 1192.8916666666669 },
-  { purchase: '2025-07-02', end: '2028-07-02', cost: 7157.35, kind: 'Leasing', year: 2026, expected: 2385.7833333333338 },
-  { purchase: '2025-07-02', end: '2028-07-02', cost: 7157.35, kind: 'Leasing', year: 2028, expected: 1391.7069444444446 },
-  { purchase: '2025-09-01', end: '2026-02-07', cost: 564.57, kind: 'Leasing', year: 2025, expected: 62.730000000000004 },
-  { purchase: '2025-09-01', end: '2026-02-07', cost: 564.57, kind: 'Leasing', year: 2026, expected: 31.365000000000002 },
-  { purchase: '2023-08-03', end: '2026-08-03', cost: 12550.89, kind: 'Leasing', year: 2023, expected: 1743.1791666666666 },
-  { purchase: '2023-08-03', end: '2026-08-03', cost: 12550.89, kind: 'Leasing', year: 2026, expected: 2789.0866666666666 },
-  { purchase: '2023-12-20', end: '2026-12-20', cost: 4689.71, kind: 'Leasing', year: 2023, expected: 130.2697222222222 },
-  { purchase: '2025-07-02', end: '2026-07-09', cost: 9877, kind: 'Purchase', year: 2025, expected: 9877 },
-  { purchase: '2025-07-02', end: '2026-07-09', cost: 9877, kind: 'Purchase', year: 2026, expected: 0 },
+  {
+    purchase: '2025-07-02',
+    end: '2028-07-02',
+    cost: 7157.35,
+    kind: 'Leasing',
+    year: 2025,
+    expected: 1192.8916666666669,
+  },
+  {
+    purchase: '2025-07-02',
+    end: '2028-07-02',
+    cost: 7157.35,
+    kind: 'Leasing',
+    year: 2026,
+    expected: 2385.7833333333338,
+  },
+  {
+    purchase: '2025-07-02',
+    end: '2028-07-02',
+    cost: 7157.35,
+    kind: 'Leasing',
+    year: 2028,
+    expected: 1391.7069444444446,
+  },
+  {
+    purchase: '2025-09-01',
+    end: '2026-02-07',
+    cost: 564.57,
+    kind: 'Leasing',
+    year: 2025,
+    expected: 62.730000000000004,
+  },
+  {
+    purchase: '2025-09-01',
+    end: '2026-02-07',
+    cost: 564.57,
+    kind: 'Leasing',
+    year: 2026,
+    expected: 31.365000000000002,
+  },
+  {
+    purchase: '2023-08-03',
+    end: '2026-08-03',
+    cost: 12550.89,
+    kind: 'Leasing',
+    year: 2023,
+    expected: 1743.1791666666666,
+  },
+  {
+    purchase: '2023-08-03',
+    end: '2026-08-03',
+    cost: 12550.89,
+    kind: 'Leasing',
+    year: 2026,
+    expected: 2789.0866666666666,
+  },
+  {
+    purchase: '2023-12-20',
+    end: '2026-12-20',
+    cost: 4689.71,
+    kind: 'Leasing',
+    year: 2023,
+    expected: 130.2697222222222,
+  },
+  {
+    purchase: '2025-07-02',
+    end: '2026-07-09',
+    cost: 9877,
+    kind: 'Purchase',
+    year: 2025,
+    expected: 9877,
+  },
+  {
+    purchase: '2025-07-02',
+    end: '2026-07-09',
+    cost: 9877,
+    kind: 'Purchase',
+    year: 2026,
+    expected: 0,
+  },
 ]
 
 function asset(over: Partial<DepreciableAsset>): DepreciableAsset {
@@ -220,10 +295,78 @@ describe('yearSpan', () => {
     expect(yearSpan([], [2030])).toEqual([2030])
   })
 
-  it('caps a mistyped date at a sane number of columns', () => {
-    const span = yearSpan([{ purchase_date: '2025-07-02', eol_date: '2925-07-02' }])
+  it('caps a run of real years at a sane number of columns', () => {
+    const span = yearSpan([{ purchase_date: '2025-07-02', eol_date: '2099-07-02' }])
     expect(span).toHaveLength(MAX_SPAN_YEARS)
     expect(span[0]).toBe(2025)
+  })
+
+  it('leaves a mistyped date out of the span instead of widening it', () => {
+    expect(
+      yearSpan([
+        { purchase_date: '0225-07-02', eol_date: '2028-07-02' },
+        { purchase_date: '2025-07-02', termination_date: '2925-07-02' },
+      ]),
+    ).toEqual([2025, 2026, 2027, 2028])
+    expect(yearSpan([], [1, 2026, 99999])).toEqual([2026])
+    expect(FIRST_YEAR).toBe(1990)
+    expect(LAST_YEAR).toBe(2100)
+  })
+})
+
+describe('the date window', () => {
+  it('charges nothing for a row whose date is a typo', () => {
+    expect(yearCost(2025, 'Leasing', '0225-07-02', '2028-07-02', 7157.35)).toBe(0)
+    expect(yearCost(2026, 'Leasing', '2025-07-02', '2205-07-02', 7157.35)).toBe(0)
+    expect(yearCost(225, 'Purchase', '0225-07-02', null, 9877)).toBe(0)
+    // ... but a date on the edge of the window is still data
+    expect(yearCost(2100, 'Purchase', '2100-12-31', null, 9877)).toBe(9877)
+    expect(yearCost(1990, 'Leasing', '1990-01-01', '1992-12-31', 3600)).toBeCloseTo(1200, 6)
+  })
+})
+
+describe('uncountedReason', () => {
+  it("names the reason a row contributes nothing, in the server's words", () => {
+    expect(uncountedReason('', null, null, 100)).toBe('no purchase type')
+    expect(uncountedReason('Rental', '2026-01-01', null, 100)).toBe(
+      "unknown purchase type 'Rental'",
+    )
+    expect(uncountedReason('Purchase', null, null, 100)).toBe('no purchase date')
+    expect(uncountedReason('Purchase', '0225-01-01', null, 100)).toBe(
+      'purchase date outside 1990-2100',
+    )
+    expect(uncountedReason('Leasing', '2026-01-01', null, 100)).toBe('no end date')
+    expect(uncountedReason('Leasing', '2026-01-01', '2205-01-01', 100)).toBe(
+      'end date outside 1990-2100',
+    )
+    expect(uncountedReason('Leasing', '2026-01-01', '2025-01-01', 100)).toBe(
+      'end date before purchase date',
+    )
+  })
+
+  it('does not flag rows that are deliberately free of cost', () => {
+    expect(uncountedReason('Not Purchased', null, null, 100)).toBeNull()
+    expect(uncountedReason('Purchase', null, null, 0)).toBeNull()
+    expect(uncountedReason('Planned Purchase', '2026-01-01', null, 100)).toBeNull()
+    expect(uncountedReason('Purchase', '2026-01-01', null, 100)).toBeNull()
+    expect(uncountedReason('Leasing', '2026-01-01', '2029-01-01', 100)).toBeNull()
+  })
+
+  it('reads the right dates off assets and licenses', () => {
+    const asset: DepreciableAsset = {
+      purchase_type: 'Leasing',
+      purchase_date: '2026-01-01',
+      eol_date: null,
+      purchase_cost: 100,
+    }
+    expect(assetUncountedReason(asset)).toBe('no end date')
+    const license: DepreciableLicense = {
+      depreciation: 'Leasing',
+      purchase_date: '2026-01-01',
+      termination_date: '2029-01-01',
+      purchase_cost: 100,
+    }
+    expect(licenseUncountedReason(license)).toBeNull()
   })
 })
 

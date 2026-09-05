@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import type { PortfolioCapacity, ProjectSummary } from '../types'
-import { Card, EmptyState, ErrorBanner, Spinner, StatusBadge } from '../components/ui'
+import { Card, EmptyState, ErrorBanner, KpiTile, Spinner, StatusBadge } from '../components/ui'
 import { MONTH_NAMES, formatEuro, formatNumber } from '../utils'
 import { useVault } from '../vault/VaultContext'
 import { VaultPrompt, VaultStatusButton } from '../vault/VaultGate'
@@ -32,18 +32,48 @@ export default function PortfolioPage() {
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null)
   const [moneyRows, setMoneyRows] = useState<ProjectMoney[] | null>(null)
   const [error, setError] = useState('')
+  /* Toggling two filters quickly, or unlocking while the money is still being
+   * computed, must not let the slower response overwrite the newer one. */
+  const moneySeq = useRef(0)
 
   useEffect(() => {
+    let cancelled = false
     setCapacity(null)
-    api.getPortfolioCapacity(statuses).then(setCapacity).catch((e) => setError(e.message))
+    // Every status deselected means no status, which the API takes as an empty list.
+    api
+      .getPortfolioCapacity(statuses)
+      .then((next) => {
+        if (!cancelled) setCapacity(next)
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e.message)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [statuses])
 
   useEffect(() => {
-    api.listProjects().then(setProjects).catch((e) => setError(e.message))
+    // One row per scenario family: the winning scenario where one is marked,
+    // the base project otherwise, so the figures follow the marked winner.
+    let cancelled = false
+    api
+      .listProjects({ effective: true })
+      .then((rows) => {
+        if (!cancelled) setProjects(rows)
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e.message)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   const computeMoney = useCallback(async () => {
     if (vault.status !== 'unlocked' || !projects) return
+    const seq = moneySeq.current + 1
+    moneySeq.current = seq
     try {
       const meta = await api.getMeta()
       const rows: ProjectMoney[] = []
@@ -62,7 +92,7 @@ export default function PortfolioPage() {
                 }),
               )
             : emptyMoneyConfig(meta.locations, meta.levels, meta.ticket_sizes)
-        const plan = computeBudgetPlan(full, money, rates)
+        const plan = computeBudgetPlan(full, money, rates, meta.hours_per_fte_per_month)
         const revenue = plan.cost_profit_overall.reduce((s, r) => s + r.selling_price, 0)
         const cost = plan.cost_profit_overall.reduce((s, r) => s + r.cost, 0)
         rows.push({
@@ -73,9 +103,10 @@ export default function PortfolioPage() {
           weighted: revenue * (STATUS_WEIGHT[summary.status]?.(summary) ?? 0),
         })
       }
+      if (seq !== moneySeq.current) return
       setMoneyRows(rows)
     } catch (e) {
-      setError((e as Error).message)
+      if (seq === moneySeq.current) setError((e as Error).message)
     }
   }, [projects, vault])
 
@@ -134,28 +165,28 @@ export default function PortfolioPage() {
       {vault.status !== 'unlocked' ? (
         <div className="mb-6">
           <VaultPrompt>
-            Pipeline value, weighted revenue and margins require unlocked financial data.
-            The capacity heatmap below works without unlocking.
+            Pipeline value, weighted revenue and margins require unlocked financial data. The
+            capacity heatmap below works without unlocking.
           </VaultPrompt>
         </div>
       ) : (
         <div className="mb-6 grid gap-4 sm:grid-cols-4">
-          <StatTile
+          <KpiTile
             label="Pipeline value"
             value={pipeline === undefined ? null : formatEuro(pipeline)}
-            hint="Total revenue of selected statuses"
+            hint="Total revenue of selected statuses; a marked winner stands for its project"
           />
-          <StatTile
+          <KpiTile
             label="Weighted revenue"
             value={weighted === undefined ? null : formatEuro(weighted)}
             hint="Win-probability weighted"
           />
-          <StatTile
+          <KpiTile
             label="Won value"
             value={wonValue === undefined ? null : formatEuro(wonValue ?? 0)}
             hint="Revenue of won RFQs"
           />
-          <StatTile
+          <KpiTile
             label="Hit rate"
             value={hitRate === null ? '—' : `${formatNumber(hitRate, 0)}%`}
             hint={`${wonCount} won / ${lostCount} lost`}
@@ -194,15 +225,32 @@ export default function PortfolioPage() {
                         >
                           {r.summary.name}
                         </Link>
+                        {r.summary.base_project_id !== null && (
+                          <span
+                            className="ml-2 rounded-full bg-amber-950 px-2 py-0.5 text-[10px] text-amber-300"
+                            title="The winning scenario stands for its project here"
+                          >
+                            👑 winner
+                          </span>
+                        )}
                       </td>
                       <td className="py-2 pr-4 text-slate-400">{r.summary.company}</td>
-                      <td className="py-2 pr-4"><StatusBadge status={r.summary.status} /></td>
+                      <td className="py-2 pr-4">
+                        <StatusBadge status={r.summary.status} />
+                      </td>
                       <td className="py-2 pr-4 text-right">
-                        {r.summary.status === 'won' ? '100' : r.summary.status === 'lost' ? '0' : r.summary.win_probability_pct}%
+                        {r.summary.status === 'won'
+                          ? '100'
+                          : r.summary.status === 'lost'
+                            ? '0'
+                            : r.summary.win_probability_pct}
+                        %
                       </td>
                       <td className="py-2 pr-4 text-right">{formatEuro(r.revenue)}</td>
                       <td className="py-2 pr-4 text-right">{formatEuro(r.cost)}</td>
-                      <td className={`py-2 pr-4 text-right ${r.marginPct < 0 ? 'text-rose-400' : ''}`}>
+                      <td
+                        className={`py-2 pr-4 text-right ${r.marginPct < 0 ? 'text-rose-400' : ''}`}
+                      >
                         {formatNumber(r.marginPct)}%
                       </td>
                       <td className="py-2 text-right">{formatEuro(r.weighted)}</td>
@@ -215,7 +263,9 @@ export default function PortfolioPage() {
         </Card>
       )}
 
-      <Card title={`Capacity Heatmap — FTE demand per month${capacity ? ` (${capacity.project_count} projects)` : ''}`}>
+      <Card
+        title={`Capacity Heatmap — FTE demand per month${capacity ? ` (${capacity.project_count} projects)` : ''}`}
+      >
         {capacity === null ? (
           <Spinner />
         ) : capacity.months.length === 0 ? (
@@ -224,16 +274,6 @@ export default function PortfolioPage() {
           <CapacityHeatmap capacity={capacity} />
         )}
       </Card>
-    </div>
-  )
-}
-
-function StatTile({ label, value, hint }: { label: string; value: string | null; hint: string }) {
-  return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-      <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
-      <p className="mt-1 text-xl font-bold text-slate-100">{value ?? '…'}</p>
-      <p className="mt-1 text-xs text-slate-500">{hint}</p>
     </div>
   )
 }

@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session
 from .. import schemas
 from ..database import get_db
 from ..services import calculations, excel_export
-from .projects import get_project_or_404
+from ..services.http import attachment_disposition
+from .projects import get_project_tree_or_404
 
 router = APIRouter(prefix="/api/projects/{project_id}/reports", tags=["reports"])
 
@@ -29,7 +30,7 @@ def _get_months_or_400(project):
 
 @router.get("/resource-plan", response_model=schemas.ResourcePlanOut)
 def resource_plan(project_id: int, db: Session = Depends(get_db)):
-    project = get_project_or_404(project_id, db)
+    project = get_project_tree_or_404(project_id, db)
     months = _get_months_or_400(project)
     pivots = calculations.generate_resource_pivots(project, months)
     return {"yearly_pivots": pivots}
@@ -37,15 +38,18 @@ def resource_plan(project_id: int, db: Session = Depends(get_db)):
 
 @router.get("/resource-plan.xlsx")
 def resource_plan_xlsx(project_id: int, db: Session = Depends(get_db)):
-    project = get_project_or_404(project_id, db)
+    project = get_project_tree_or_404(project_id, db)
     months = _get_months_or_400(project)
     pivots = calculations.generate_resource_pivots(project, months)
     if not pivots:
         raise HTTPException(status_code=400, detail="No resource data to export.")
     content = excel_export.build_resource_plan_xlsx(pivots)
-    filename = f"{project.name} - Resource Plan.xlsx"
     return Response(
         content=content,
         media_type=XLSX_MEDIA_TYPE,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": attachment_disposition(
+                f"{project.name} - Resource Plan.xlsx"
+            )
+        },
     )

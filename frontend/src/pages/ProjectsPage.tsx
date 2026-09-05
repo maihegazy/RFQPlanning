@@ -2,17 +2,30 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import type { ProjectSummary, ProjectTemplate } from '../types'
-import { Button, ErrorBanner, EmptyState, Input, Label, Modal, Select, Spinner, StatusBadge } from '../components/ui'
+import {
+  Button,
+  ConfirmDialog,
+  EmptyState,
+  ErrorBanner,
+  Input,
+  Label,
+  Modal,
+  Select,
+  Spinner,
+  Stat,
+  StatusBadge,
+} from '../components/ui'
 import { MONTH_NAMES } from '../utils'
 import { downloadBlob } from '../download'
 import { useVault } from '../vault/VaultContext'
 import { VaultDialog, VaultStatusButton } from '../vault/VaultGate'
-import { emptyMoneyConfig, type MoneyConfig } from '../money/types'
-
-type LegacyImport = {
-  rate_config?: Record<string, unknown>
-  [key: string]: unknown
-}
+import { emptyMoneyConfig, normalizeMoneyConfig, type MoneyConfig } from '../money/types'
+import {
+  containsFinancialData,
+  moneyFromImport,
+  withFinancialData,
+  type LegacyImport,
+} from '../money/portable'
 
 const STATUS_TABS = [
   { key: '', label: 'All' },
@@ -38,28 +51,14 @@ function monthSpan(p: ProjectSummary): number {
   return (p.end_year - p.start_year) * 12 + (p.end_month - p.start_month) + 1
 }
 
-/** Timestamps arrive as naive UTC — normalise before comparing to "now". */
+/** Timestamps arrive with their UTC offset, so the browser parses them as-is. */
 function relativeTime(iso: string): string {
-  const stamp = /[Z+]/.test(iso) ? iso : `${iso}Z`
-  const days = Math.floor((Date.now() - new Date(stamp).getTime()) / 86_400_000)
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000)
   if (days <= 0) return 'today'
   if (days === 1) return 'yesterday'
   if (days < 30) return `${days} days ago`
   const months = Math.round(days / 30)
   return months <= 1 ? 'last month' : `${months} months ago`
-}
-
-function Stat({ label, value, tone = 'text-slate-100' }: {
-  label: string
-  value: string | number
-  tone?: string
-}) {
-  return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3">
-      <div className={`text-2xl font-semibold ${tone}`}>{value}</div>
-      <div className="mt-0.5 text-xs uppercase tracking-wide text-slate-500">{label}</div>
-    </div>
-  )
 }
 
 function ProjectCard({
@@ -148,13 +147,6 @@ function ProjectCard({
   )
 }
 
-function containsFinancialData(data: LegacyImport): boolean {
-  const rates = data.rate_config ?? {}
-  return Boolean(
-    rates.hourly_rates || rates.cost_rates || rates.ticket_price || rates.hw_cost_per_hour,
-  )
-}
-
 export default function ProjectsPage() {
   const vault = useVault()
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null)
@@ -166,7 +158,6 @@ export default function ProjectsPage() {
   const [sortKey, setSortKey] = useState<SortKey>('updated')
   const [pendingImport, setPendingImport] = useState<LegacyImport | null>(null)
   const [showImportVault, setShowImportVault] = useState(false)
-  const [importReady, setImportReady] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
 
   // Load once and filter in the browser: the list is small, and it keeps the
@@ -187,23 +178,8 @@ export default function ProjectsPage() {
 
       try {
         const meta = await api.getMeta()
-        const rates = data.rate_config ?? {}
         const base = emptyMoneyConfig(meta.locations, meta.levels, meta.ticket_sizes)
-        const money: MoneyConfig = {
-          ...base,
-          hourly_rates: { ...base.hourly_rates, ...((rates.hourly_rates ?? {}) as object) },
-          cost_rates: Object.fromEntries(
-            meta.locations.map((location) => [
-              location,
-              {
-                ...base.cost_rates[location],
-                ...(((rates.cost_rates as Record<string, object> | undefined)?.[location]) ?? {}),
-              },
-            ]),
-          ),
-          hw_cost_per_hour: Number(rates.hw_cost_per_hour ?? 0),
-          ticket_prices: { ...base.ticket_prices, ...((rates.ticket_price ?? {}) as object) },
-        }
+        const money = moneyFromImport(data, base)
         const blob = await vault.encrypt(money)
         await api.putMoneyBlob(project.id, {
           encrypted_money: blob.ciphertext,
@@ -218,23 +194,36 @@ export default function ProjectsPage() {
     [vault],
   )
 
+  // The deferred import resumes as soon as the vault is unlocked, whether from
+  // the dialog opened for it or from the header's vault button.
   useEffect(() => {
-    if (!pendingImport || !importReady || vault.status !== 'unlocked') return
+    if (!pendingImport || vault.status !== 'unlocked') return
 
     const data = pendingImport
     setPendingImport(null)
-    setImportReady(false)
-    setShowImportVault(false)
+    // The dialog closes itself: a setup still has to show the recovery key.
     importProject(data)
       .then(() => {
         setNotice('Project imported with encrypted financial values.')
         load()
       })
       .catch((e) => setError(`Import failed: ${(e as Error).message}`))
-  }, [importProject, importReady, load, pendingImport, vault.status])
+  }, [importProject, load, pendingImport, vault.status])
 
-  const handleDelete = async (project: ProjectSummary) => {
-    if (!window.confirm(`Delete project "${project.name}"? This cannot be undone.`)) return
+  const cancelPendingImport = () => {
+    setShowImportVault(false)
+    if (pendingImport) {
+      setPendingImport(null)
+      setNotice('Import cancelled: unlock the vault and choose the file again to import it.')
+    }
+  }
+
+  const [deleting, setDeleting] = useState<ProjectSummary | null>(null)
+
+  const handleDelete = async () => {
+    const project = deleting
+    setDeleting(null)
+    if (project === null) return
     try {
       await api.deleteProject(project.id)
       load()
@@ -250,7 +239,6 @@ export default function ProjectsPage() {
       const data = JSON.parse(await file.text()) as LegacyImport
       if (containsFinancialData(data) && vault.status !== 'unlocked') {
         setPendingImport(data)
-        setImportReady(false)
         setShowImportVault(true)
         setNotice('Unlock the financial vault to continue this import securely.')
         return
@@ -267,23 +255,17 @@ export default function ProjectsPage() {
     setError('')
     setNotice('')
     try {
-      const data = (await api.exportProject(project.id)) as {
-        rate_config?: Record<string, unknown>
-      }
+      const data = (await api.exportProject(project.id)) as LegacyImport
       if (vault.status === 'unlocked') {
         const blob = await api.getMoneyBlob(project.id)
         if (blob.encrypted_money && blob.money_iv) {
-          const money = await vault.decrypt<MoneyConfig>({
-            iv: blob.money_iv,
-            ciphertext: blob.encrypted_money,
-          })
-          data.rate_config = {
-            ...(data.rate_config ?? {}),
-            hourly_rates: money.hourly_rates,
-            cost_rates: money.cost_rates,
-            hw_cost_per_hour: money.hw_cost_per_hour,
-            ticket_price: money.ticket_prices,
-          }
+          const money = normalizeMoneyConfig(
+            await vault.decrypt<MoneyConfig>({
+              iv: blob.money_iv,
+              ciphertext: blob.encrypted_money,
+            }),
+          )
+          withFinancialData(data, money)
         }
       } else {
         setNotice('Exported without financial values (vault locked). Unlock to include them.')
@@ -318,9 +300,7 @@ export default function ProjectsPage() {
     const rows = (projects ?? []).filter((p) => {
       if (statusFilter && p.status !== statusFilter) return false
       if (!query) return true
-      return (
-        p.name.toLowerCase().includes(query) || p.company.toLowerCase().includes(query)
-      )
+      return p.name.toLowerCase().includes(query) || p.company.toLowerCase().includes(query)
     })
     return [...rows].sort((a, b) => {
       switch (sortKey) {
@@ -433,7 +413,11 @@ export default function ProjectsPage() {
             {tab.label}
             {/* The count sits on the solid indigo pill, so it stays white-on-accent
                 in both themes rather than following the accent text ramp. */}
-            <span className={statusFilter === tab.key ? 'ml-1.5 text-white/70' : 'ml-1.5 text-slate-500'}>
+            <span
+              className={
+                statusFilter === tab.key ? 'ml-1.5 text-white/70' : 'ml-1.5 text-slate-500'
+              }
+            >
               {counts[tab.key] ?? 0}
             </span>
           </button>
@@ -488,13 +472,13 @@ export default function ProjectsPage() {
                 key={p.id}
                 project={p}
                 onExport={() => handleExport(p)}
-                onDelete={() => handleDelete(p)}
+                onDelete={() => setDeleting(p)}
               />
             ))}
           </div>
           <p className="mt-4 text-xs text-slate-500">
-            Showing {visible.length} of {projects.length} projects. Scenarios are grouped
-            inside their base project.
+            Showing {visible.length} of {projects.length} projects. Scenarios are grouped inside
+            their base project.
           </p>
         </>
       )}
@@ -508,12 +492,15 @@ export default function ProjectsPage() {
           }}
         />
       )}
-      {showImportVault && (
-        <VaultDialog
-          onUnlocked={() => setImportReady(true)}
-          onClose={() => setShowImportVault(false)}
+      {deleting !== null && (
+        <ConfirmDialog
+          title="Delete project"
+          message={`Delete project "${deleting.name}"? This cannot be undone.`}
+          onConfirm={handleDelete}
+          onCancel={() => setDeleting(null)}
         />
       )}
+      {showImportVault && <VaultDialog onClose={cancelPendingImport} />}
     </div>
   )
 }
@@ -585,11 +572,24 @@ function CreateProjectModal({
   const [endMonth, setEndMonth] = useState(now.getMonth() + 1)
   const [templates, setTemplates] = useState<ProjectTemplate[]>([])
   const [templateId, setTemplateId] = useState<string | null>(null)
+  const [deletingTemplate, setDeletingTemplate] = useState<ProjectTemplate | null>(null)
+
+  const deleteTemplate = async () => {
+    const template = deletingTemplate
+    setDeletingTemplate(null)
+    if (template === null) return
+    await api.deleteTemplate(template.id)
+    if (templateId === template.id) setTemplateId(null)
+    setTemplates(await api.listTemplates())
+  }
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    api.listTemplates().then(setTemplates).catch(() => setTemplates([]))
+    api
+      .listTemplates()
+      .then(setTemplates)
+      .catch(() => setTemplates([]))
   }, [])
 
   const submit = async () => {
@@ -618,11 +618,22 @@ function CreateProjectModal({
         {error && <ErrorBanner message={error} />}
         <div>
           <Label>Project name</Label>
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Project" autoFocus />
+          <Input
+            aria-label="Project name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Project"
+            autoFocus
+          />
         </div>
         <div>
           <Label>Company</Label>
-          <Input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Company" />
+          <Input
+            aria-label="Company"
+            value={company}
+            onChange={(e) => setCompany(e.target.value)}
+            placeholder="Company"
+          />
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -630,7 +641,9 @@ function CreateProjectModal({
             <div className="flex gap-2">
               <Select value={startMonth} onChange={(e) => setStartMonth(Number(e.target.value))}>
                 {MONTH_NAMES.map((m, i) => (
-                  <option key={m} value={i + 1}>{m}</option>
+                  <option key={m} value={i + 1}>
+                    {m}
+                  </option>
                 ))}
               </Select>
               <Input
@@ -646,7 +659,9 @@ function CreateProjectModal({
             <div className="flex gap-2">
               <Select value={endMonth} onChange={(e) => setEndMonth(Number(e.target.value))}>
                 {MONTH_NAMES.map((m, i) => (
-                  <option key={m} value={i + 1}>{m}</option>
+                  <option key={m} value={i + 1}>
+                    {m}
+                  </option>
                 ))}
               </Select>
               <Input
@@ -678,16 +693,7 @@ function CreateProjectModal({
                   (n, f) => n + f.roles.length,
                   0,
                 )} roles`}
-                onDelete={
-                  t.custom
-                    ? async () => {
-                        if (!window.confirm(`Delete template "${t.name}"?`)) return
-                        await api.deleteTemplate(t.id)
-                        if (templateId === t.id) setTemplateId(null)
-                        setTemplates(await api.listTemplates())
-                      }
-                    : undefined
-                }
+                onDelete={t.custom ? () => setDeletingTemplate(t) : undefined}
               />
             ))}
           </div>
@@ -707,12 +713,22 @@ function CreateProjectModal({
           )}
         </div>
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
           <Button onClick={submit} disabled={saving}>
             {saving ? 'Creating…' : 'Create Project'}
           </Button>
         </div>
       </div>
+      {deletingTemplate !== null && (
+        <ConfirmDialog
+          title="Delete template"
+          message={`Delete template "${deletingTemplate.name}"? Projects created from it are not affected.`}
+          onConfirm={() => void deleteTemplate()}
+          onCancel={() => setDeletingTemplate(null)}
+        />
+      )}
     </Modal>
   )
 }

@@ -1,8 +1,17 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
 import type { Meta, Project, ProjectSummary } from '../types'
-import { Button, ErrorBanner, Input, Label, Modal, Spinner, StatusBadge } from '../components/ui'
+import {
+  Button,
+  ErrorBanner,
+  Input,
+  Label,
+  Modal,
+  PromptDialog,
+  Spinner,
+  StatusBadge,
+} from '../components/ui'
 import { VaultStatusButton } from '../vault/VaultGate'
 import InfoTab from '../tabs/InfoTab'
 import ResourcesTab from '../tabs/ResourcesTab'
@@ -11,13 +20,7 @@ import HardwareTab from '../tabs/HardwareTab'
 import ReportsTab from '../tabs/ReportsTab'
 import CompareTab from '../tabs/CompareTab'
 
-function SaveTemplateModal({
-  project,
-  onClose,
-}: {
-  project: Project
-  onClose: () => void
-}) {
+function SaveTemplateModal({ project, onClose }: { project: Project; onClose: () => void }) {
   const [name, setName] = useState(`${project.name} Template`)
   const [description, setDescription] = useState('')
   const [error, setError] = useState('')
@@ -55,9 +58,9 @@ function SaveTemplateModal({
           <p className="text-sm text-slate-400">
             Snapshots this project's structure — {featureCount} feature
             {featureCount === 1 ? '' : 's'} with {roleCount} role
-            {roleCount === 1 ? '' : 's'} — as a reusable template. Roles with variable
-            FTE periods are saved with their average FTE. Financial data and the timeline
-            are not part of a template.
+            {roleCount === 1 ? '' : 's'} — as a reusable template. Roles with variable FTE periods
+            are saved with their average FTE. Financial data and the timeline are not part of a
+            template.
           </p>
           {error && <ErrorBanner message={error} />}
           <div>
@@ -73,7 +76,9 @@ function SaveTemplateModal({
             />
           </div>
           <div className="flex justify-end gap-2">
-            <Button variant="secondary" onClick={onClose}>Cancel</Button>
+            <Button variant="secondary" onClick={onClose}>
+              Cancel
+            </Button>
             <Button onClick={save} disabled={saving || !name.trim() || featureCount === 0}>
               {saving ? 'Saving…' : 'Save Template'}
             </Button>
@@ -107,24 +112,57 @@ export default function ProjectPage() {
   const [meta, setMeta] = useState<Meta | null>(null)
   const [error, setError] = useState('')
   const [showSaveTemplate, setShowSaveTemplate] = useState(false)
+  /* Switching scenarios while the previous one is still loading must not let
+   * the slower response show up under the newer URL. */
+  const loadSeq = useRef(0)
 
   const reload = useCallback(() => {
-    api.getProject(id).then(setProject).catch((e) => setError(e.message))
-    api.listScenarios(id).then(setFamily).catch(() => setFamily([]))
+    const seq = loadSeq.current + 1
+    loadSeq.current = seq
+    api
+      .getProject(id)
+      .then((next) => {
+        if (seq === loadSeq.current) setProject(next)
+      })
+      .catch((e) => {
+        if (seq === loadSeq.current) setError(e.message)
+      })
+    api
+      .listScenarios(id)
+      .then((next) => {
+        if (seq === loadSeq.current) setFamily(next)
+      })
+      .catch(() => {
+        if (seq === loadSeq.current) setFamily([])
+      })
   }, [id])
 
   useEffect(() => {
+    setProject(null)
+    setError('')
     reload()
-    api.getMeta().then(setMeta).catch((e) => setError(e.message))
   }, [reload])
 
-  const newScenario = async () => {
+  useEffect(() => {
+    let cancelled = false
+    api
+      .getMeta()
+      .then((next) => {
+        if (!cancelled) setMeta(next)
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e.message)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const [namingScenario, setNamingScenario] = useState(false)
+
+  const newScenario = async (name: string) => {
     if (!project) return
-    const name = window.prompt(
-      'Scenario name:',
-      `${project.name} — Scenario ${String.fromCharCode(65 + family.length)}`,
-    )
-    if (!name) return
+    setNamingScenario(false)
     try {
       const clone = await api.cloneProject(project.id, name, true)
       navigate(`/projects/${clone.id}`)
@@ -180,7 +218,7 @@ export default function ProjectPage() {
                 ))}
               </select>
             )}
-            <Button variant="secondary" onClick={newScenario}>
+            <Button variant="secondary" onClick={() => setNamingScenario(true)}>
               + New Scenario
             </Button>
             <Button variant="secondary" onClick={() => setShowSaveTemplate(true)}>
@@ -211,6 +249,16 @@ export default function ProjectPage() {
 
       {showSaveTemplate && (
         <SaveTemplateModal project={project} onClose={() => setShowSaveTemplate(false)} />
+      )}
+      {namingScenario && (
+        <PromptDialog
+          title="New scenario"
+          label="Scenario name"
+          initialValue={`${project.name} — Scenario ${String.fromCharCode(65 + family.length)}`}
+          submitLabel="Create scenario"
+          onSubmit={newScenario}
+          onCancel={() => setNamingScenario(false)}
+        />
       )}
 
       <Routes>

@@ -1,5 +1,7 @@
 """Project CRUD and import/export endpoints."""
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -7,7 +9,9 @@ from .. import models, schemas
 from ..config import TICKET_SIZES
 from ..database import get_db
 from ..services import calculations, cloning
+from ..services.loading import project_tree
 from ..services.rate_config import get_rate_config
+from ..services.scenarios import effective_projects
 from ..templates import resolve_template
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -20,15 +24,38 @@ def get_project_or_404(project_id: int, db: Session) -> models.Project:
     return project
 
 
+def get_project_tree_or_404(project_id: int, db: Session) -> models.Project:
+    """The project with its features, roles and periods loaded in four queries."""
+    project = (
+        db.query(models.Project)
+        .options(project_tree())
+        .filter(models.Project.id == project_id)
+        .one_or_none()
+    )
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
+
 @router.get("", response_model=list[schemas.ProjectSummary])
 def list_projects(status: str | None = None, include_scenarios: bool = False,
-                  db: Session = Depends(get_db)):
-    query = db.query(models.Project)
-    if not include_scenarios:
-        query = query.filter(models.Project.base_project_id.is_(None))
+                  effective: bool = False, db: Session = Depends(get_db)):
+    """The projects, base ones by default.
+
+    `include_scenarios` lists every row; `effective` lists one row per scenario
+    family, the winning scenario where one is marked and the base otherwise,
+    which is what the portfolio figures are built from.
+    """
+    query = db.query(models.Project).order_by(models.Project.updated_at.desc())
+    if effective:
+        projects = effective_projects(query.all())
+    else:
+        if not include_scenarios:
+            query = query.filter(models.Project.base_project_id.is_(None))
+        projects = query.all()
     if status is not None:
-        query = query.filter(models.Project.status == status)
-    return query.order_by(models.Project.updated_at.desc()).all()
+        projects = [project for project in projects if project.status == status]
+    return projects
 
 
 @router.post("", response_model=schemas.ProjectOut, status_code=201)
@@ -45,19 +72,32 @@ def create_project(data: schemas.ProjectCreate, db: Session = Depends(get_db)):
     db.flush()
 
     if template:
+        first_month = f"{project.start_year:04d}-{project.start_month:02d}"
+        last_month = f"{project.end_year:04d}-{project.end_month:02d}"
         for feature_def in template["features"]:
             feature = models.Feature(project_id=project.id, name=feature_def["name"])
             db.add(feature)
             db.flush()
             for role in feature_def["roles"]:
-                db.add(models.Role(
+                ftes = float(role["ftes"])
+                # A template may carry an average above the fixed-FTE cap (a
+                # variable role snapshotted at 4.0); it becomes one variable period.
+                variable = ftes > 2.0
+                record = models.Role(
                     feature_id=feature.id,
                     name=role["name"],
                     location=role["location"],
                     level=role["level"],
-                    ftes=float(role["ftes"]),
-                    use_advanced_allocation=False,
-                ))
+                    ftes=0.0 if variable else ftes,
+                    use_advanced_allocation=variable,
+                )
+                db.add(record)
+                if variable:
+                    db.flush()
+                    db.add(models.AllocationPeriod(
+                        role_id=record.id, start_month=first_month,
+                        end_month=last_month, ftes=ftes,
+                    ))
 
     db.commit()
     db.refresh(project)
@@ -66,7 +106,7 @@ def create_project(data: schemas.ProjectCreate, db: Session = Depends(get_db)):
 
 @router.get("/{project_id}", response_model=schemas.ProjectOut)
 def get_project(project_id: int, db: Session = Depends(get_db)):
-    return get_project_or_404(project_id, db)
+    return get_project_tree_or_404(project_id, db)
 
 
 @router.put("/{project_id}", response_model=schemas.ProjectOut)
@@ -87,8 +127,28 @@ def update_project(project_id: int, data: schemas.ProjectUpdate,
             status_code=422,
             detail="Project start date must be before or equal to end date",
         )
+    timeline_changed = (
+        start != (project.start_year, project.start_month)
+        or end != (project.end_year, project.end_month)
+    )
+    if timeline_changed:
+        conflicts = calculations.timeline_conflicts(project, start, end)
+        if conflicts:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Changing the timeline would leave data outside it: "
+                    + "; ".join(conflicts)
+                    + ". Adjust or remove these first."
+                ),
+            )
     for field, value in updates.items():
         setattr(project, field, value)
+    if timeline_changed:
+        # A quota for a year the project no longer covers has nothing to apply to.
+        for quota in list(project.ticket_quotas):
+            if not start[0] <= quota.year <= end[0]:
+                db.delete(quota)
     db.commit()
     db.refresh(project)
     return project
@@ -112,8 +172,6 @@ def save_as_template(project_id: int, data: schemas.SaveTemplateRequest,
     over the project's months (rounded to 1 decimal). Money is never part
     of a template.
     """
-    import json
-
     project = get_project_or_404(project_id, db)
     months = calculations.get_project_months(project)
 
@@ -242,6 +300,8 @@ def export_project(project_id: int, db: Session = Depends(get_db)):
                         "Location": role.location,
                         "Level": role.level,
                         "FTEs": role.ftes,
+                        # Only a variable role's periods mean anything; a fixed
+                        # role exports none so the file always re-imports.
                         "allocations": [
                             {
                                 "start_month": a.start_month,
@@ -249,7 +309,7 @@ def export_project(project_id: int, db: Session = Depends(get_db)):
                                 "ftes": a.ftes,
                             }
                             for a in role.allocations
-                        ],
+                        ] if role.use_advanced_allocation else [],
                         "use_advanced_allocation": role.use_advanced_allocation,
                     }
                     for role in feature.roles
@@ -262,7 +322,23 @@ def export_project(project_id: int, db: Session = Depends(get_db)):
             "risk_factor_pct": rates["risk_factor_pct"],
             "ticket_sp": rates["ticket_story_points"],
             "ticket_quota": {str(y): q for y, q in rates["ticket_quotas"].items()},
+            "hardware_pass_through": rates["hardware_pass_through"],
         },
+        "hardware_items": [
+            {
+                "name": item.name,
+                "aspice": item.aspice,
+                "billing": item.billing,
+                "unit_cost": item.unit_cost,
+                "qty": item.qty,
+                "years": calculations.hardware_item_years(item),
+                "supplier_name": item.supplier_name,
+                "supplier_email": item.supplier_email,
+                # The catalog link travels by name: ids differ between databases.
+                "catalog_item_name": item.catalog_item.name if item.catalog_item else "",
+            }
+            for item in project.hardware_items
+        ],
     }
 
 
@@ -312,6 +388,7 @@ def import_project(data: schemas.LegacyProjectImport, db: Session = Depends(get_
     rc = data.rate_config
     project.sp_to_hours = rc.sp_to_hours
     project.risk_factor_pct = rc.risk_factor_pct
+    project.hardware_pass_through = rc.hardware_pass_through
 
     for size in TICKET_SIZES:
         db.add(models.TicketConfig(
@@ -325,6 +402,25 @@ def import_project(data: schemas.LegacyProjectImport, db: Session = Depends(get_
                 project_id=project.id, year=year, size=size,
                 quota_pct=quotas.get(size, 0.0),
             ))
+
+    catalog_by_name: dict[str, int] = {}
+    if data.hardware_items:
+        catalog_by_name = {
+            record.name: record.id for record in db.query(models.HardwareCatalogItem)
+        }
+    for item in data.hardware_items:
+        db.add(models.HardwareItem(
+            project_id=project.id,
+            catalog_item_id=catalog_by_name.get(item.catalog_item_name),
+            name=item.name,
+            aspice=item.aspice,
+            billing=item.billing,
+            unit_cost=item.unit_cost,
+            qty=item.qty,
+            years_json=json.dumps(sorted(set(item.years))),
+            supplier_name=item.supplier_name,
+            supplier_email=item.supplier_email,
+        ))
 
     db.commit()
     db.refresh(project)

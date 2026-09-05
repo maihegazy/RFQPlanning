@@ -25,6 +25,7 @@ const project: Project = {
   lost_reason: null,
   base_project_id: null,
   is_winning_scenario: false,
+  version: 1,
   created_at: '',
   updated_at: '',
   features: [
@@ -78,6 +79,9 @@ const money: MoneyConfig = {
 const rates: RateConfig = {
   sp_to_hours: 4.0,
   risk_factor_pct: 10.0,
+  version: 1,
+  hardware_costs_per_year: {},
+  hardware_pass_through: false,
   ticket_story_points: { small: 2, medium: 5, large: 10 },
   ticket_quotas: {
     '2026': { small: 20, medium: 30, large: 10 },
@@ -89,9 +93,7 @@ describe('money engine (golden master vs. original Python implementation)', () =
   const plan = computeBudgetPlan(project, money, rates)
 
   it('cost-profit summary matches', () => {
-    const bcc2026 = plan.cost_profit_summary.find(
-      (r) => r.year === '2026' && r.location === 'BCC',
-    )!
+    const bcc2026 = plan.cost_profit_summary.find((r) => r.year === '2026' && r.location === 'BCC')!
     // Developer 1.0 FTE x 12 months x 160h = 1920h
     expect(bcc2026.man_hours).toBeCloseTo(1920)
     expect(bcc2026.selling_price).toBeCloseTo(1920 * 100.0)
@@ -99,9 +101,7 @@ describe('money engine (golden master vs. original Python implementation)', () =
     expect(bcc2026.profit_pct).toBeCloseTo(50.0)
 
     // Architect: (6*0.5 + 6*1.0) * 160 = 1440h
-    const hcc2026 = plan.cost_profit_summary.find(
-      (r) => r.year === '2026' && r.location === 'HCC',
-    )!
+    const hcc2026 = plan.cost_profit_summary.find((r) => r.year === '2026' && r.location === 'HCC')!
     expect(hcc2026.man_hours).toBeCloseTo(1440)
   })
 
@@ -116,13 +116,9 @@ describe('money engine (golden master vs. original Python implementation)', () =
     const avgRate = (1920 * 100.0 + 1440 * 80.0) / totalHours
     const finalRate = avgRate * 1.1 + 2.0
 
-    const small = plan.ticket_analysis.find(
-      (r) => r.year === '2026' && r.size === 'Small',
-    )!
+    const small = plan.ticket_analysis.find((r) => r.year === '2026' && r.size === 'Small')!
     expect(small.hours_per_ticket).toBeCloseTo(8.0) // 2 SP * 4 h/SP
-    expect(small.num_tickets).toBeCloseTo(
-      Math.round(((totalHours * 0.2) / 8.0) * 100) / 100,
-    )
+    expect(small.num_tickets).toBeCloseTo(Math.round(((totalHours * 0.2) / 8.0) * 100) / 100)
     expect(small.hourly_rate).toBeCloseTo(Math.round(finalRate * 100) / 100)
   })
 
@@ -153,11 +149,7 @@ describe('money engine (golden master vs. original Python implementation)', () =
   })
 
   it('yearly rate escalation compounds from the start year', () => {
-    const escalated = computeBudgetPlan(
-      project,
-      { ...money, rate_escalation_pct: 10 },
-      rates,
-    )
+    const escalated = computeBudgetPlan(project, { ...money, rate_escalation_pct: 10 }, rates)
     const y2026 = escalated.cost_profit_overall.find((r) => r.year === '2026')!
     const y2027 = escalated.cost_profit_overall.find((r) => r.year === '2027')!
     // Year 1 unchanged; year 2 rates are exactly 1.1x
@@ -173,11 +165,35 @@ describe('money engine (golden master vs. original Python implementation)', () =
         ...money,
         cost_items: [
           // one-time inside the project
-          { name: 'HIL bench', category: 'hardware', amount: 50000, is_recurring: false, start_month: '2026-03', end_month: null, pass_through: false },
+          {
+            name: 'HIL bench',
+            category: 'hardware',
+            amount: 50000,
+            is_recurring: false,
+            start_month: '2026-03',
+            end_month: null,
+            pass_through: false,
+          },
           // one-time OUTSIDE the project range -> ignored
-          { name: 'Stale', category: 'other', amount: 99999, is_recurring: false, start_month: '2030-01', end_month: null, pass_through: false },
+          {
+            name: 'Stale',
+            category: 'other',
+            amount: 99999,
+            is_recurring: false,
+            start_month: '2030-01',
+            end_month: null,
+            pass_through: false,
+          },
           // recurring license clipped to 2027 (Jan-Jun = 6 months)
-          { name: 'Tool license', category: 'license', amount: 1000, is_recurring: true, start_month: '2027-01', end_month: '2027-12', pass_through: true },
+          {
+            name: 'Tool license',
+            category: 'license',
+            amount: 1000,
+            is_recurring: true,
+            start_month: '2027-01',
+            end_month: '2027-12',
+            pass_through: true,
+          },
         ],
       },
       rates,
@@ -216,5 +232,32 @@ describe('money engine (golden master vs. original Python implementation)', () =
     expect(overall.man_hours).toBeCloseTo(3360)
     expect(overall.selling_price).toBe(0)
     expect(overall.cost).toBe(0)
+  })
+})
+
+describe('the hardware plan in the analysis', () => {
+  it('carries the plan as a non-labor row per year, billed only as a pass-through', () => {
+    const withPlan: RateConfig = {
+      ...rates,
+      hardware_costs_per_year: { '2026': 1200, '2027': 300 },
+      hardware_pass_through: false,
+    }
+    const cost = computeBudgetPlan(project, money, withPlan)
+    const planRows = cost.non_labor_summary.filter((r) => r.category === 'hardware plan')
+    expect(planRows).toEqual([
+      { year: '2026', category: 'hardware plan', cost: 1200, billed: 0 },
+      { year: '2027', category: 'hardware plan', cost: 300, billed: 0 },
+    ])
+    const overall2026 = cost.cost_profit_overall.find((r) => r.year === '2026')!
+    const bare2026 = computeBudgetPlan(project, money, rates).cost_profit_overall.find(
+      (r) => r.year === '2026',
+    )!
+    expect(overall2026.cost - bare2026.cost).toBeCloseTo(1200, 6)
+    expect(overall2026.selling_price).toBeCloseTo(bare2026.selling_price, 6)
+
+    const billed = computeBudgetPlan(project, money, { ...withPlan, hardware_pass_through: true })
+    const billed2026 = billed.cost_profit_overall.find((r) => r.year === '2026')!
+    expect(billed2026.selling_price - bare2026.selling_price).toBeCloseTo(1200, 6)
+    expect(billed.non_labor_summary.find((r) => r.category === 'hardware plan')?.billed).toBe(1200)
   })
 })

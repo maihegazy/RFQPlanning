@@ -4,8 +4,8 @@ Revision ID: 20260817_0001
 Revises: None
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "20260817_0001"
 down_revision = None
@@ -53,8 +53,8 @@ def upgrade() -> None:
     inspector = sa.inspect(bind)
 
     if "projects" not in inspector.get_table_names():
-        from app.database import Base
         from app import models  # noqa: F401
+        from app.database import Base
 
         Base.metadata.create_all(bind=bind)
         return
@@ -104,8 +104,8 @@ def upgrade() -> None:
 
     # create_all is deliberate in this compatibility baseline: it creates
     # tables introduced after the original release while preserving all rows.
-    from app.database import Base
     from app import models  # noqa: F401
+    from app.database import Base
 
     Base.metadata.create_all(bind=bind)
 

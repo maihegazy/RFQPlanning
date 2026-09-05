@@ -1,9 +1,10 @@
 """SQLAlchemy ORM models."""
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     Float,
@@ -12,9 +13,10 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    event,
     false,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
 from .config import (
     DEFAULT_HW_COST_PER_HOUR,
@@ -22,6 +24,17 @@ from .config import (
     DEFAULT_SP_TO_HOURS,
 )
 from .database import Base
+
+
+def utc_now() -> datetime:
+    """The current UTC time as the naive value the timestamp columns store.
+
+    The columns are `TIMESTAMP WITHOUT TIME ZONE` on every engine; the API adds
+    the UTC offset when it serialises them (see `schemas.UtcDatetime`), so
+    clients never have to guess the zone. `datetime.utcnow()` did the same job
+    but is deprecated since Python 3.12.
+    """
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class Project(Base):
@@ -39,6 +52,13 @@ class Project(Base):
     sp_to_hours: Mapped[float] = mapped_column(Float, default=DEFAULT_SP_TO_HOURS)
     hw_cost_per_hour: Mapped[float] = mapped_column(Float, default=DEFAULT_HW_COST_PER_HOUR)
     risk_factor_pct: Mapped[float] = mapped_column(Float, default=DEFAULT_RISK_FACTOR_PCT)
+
+    # Whether the hardware plan's cost is also billed to the customer. The plan
+    # itself is plaintext (see HardwareItem); its per-year totals feed the
+    # browser-side cost-profit analysis as a non-labor row.
+    hardware_pass_through: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false()
+    )
 
     # End-to-end encrypted money configuration. Ciphertext (AES-256-GCM,
     # base64) produced in the browser; the server never holds the key.
@@ -58,9 +78,13 @@ class Project(Base):
         Boolean, default=False, server_default=false()
     )
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # Moves on every write to the project or anything inside it; the write
+    # endpoints compare it with the version a client last saw (409 on mismatch).
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=utc_now, onupdate=utc_now
     )
 
     features: Mapped[list["Feature"]] = relationship(
@@ -95,7 +119,7 @@ class HardwareCatalogItem(Base):
     unit_cost: Mapped[float] = mapped_column(Float, default=0.0)
     supplier_name: Mapped[str] = mapped_column(String(255), default="")
     supplier_email: Mapped[str] = mapped_column(String(255), default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class HardwareItem(Base):
@@ -143,7 +167,7 @@ class CustomTemplate(Base):
     description: Mapped[str] = mapped_column(String(1000), default="")
     # JSON: [{"name": str, "roles": [{"name","location","level","ftes"}]}]
     features_json: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class Vault(Base):
@@ -156,15 +180,29 @@ class Vault(Base):
     """
 
     __tablename__ = "vault"
+    __table_args__ = (
+        # Exactly one row can carry singleton = 1, so two first-time users racing
+        # to create the vault cannot both succeed.
+        UniqueConstraint("singleton", name="uq_vault_singleton"),
+        CheckConstraint("singleton = 1", name="ck_vault_singleton"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    singleton: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
     kdf_salt: Mapped[str] = mapped_column(String(64), nullable=False)
     kdf_iterations: Mapped[int] = mapped_column(Integer, nullable=False)
     wrapped_dek_passphrase_iv: Mapped[str] = mapped_column(String(64), nullable=False)
     wrapped_dek_passphrase: Mapped[str] = mapped_column(String(256), nullable=False)
     wrapped_dek_recovery_iv: Mapped[str] = mapped_column(String(64), nullable=False)
     wrapped_dek_recovery: Mapped[str] = mapped_column(String(256), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # A digest of the unwrapped data key, computed in the browser after a
+    # successful unlock. Replacing the passphrase copy of the key requires it,
+    # so a blind request cannot lock everyone out. Null on vaults created before
+    # the column existed, until their first unlock registers it.
+    dek_verifier: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class Feature(Base):
@@ -301,7 +339,7 @@ class HwProject(Base):
     # A budget is approved either as one number or split by type; `budget_mode`
     # says which of the two is the real one, so an unused figure left over from
     # the other mode can never quietly change a total.
-    budget_mode: Mapped[str] = mapped_column(String(16), default="split")
+    budget_mode: Mapped[str] = mapped_column(String(16), default="overall")
     budget_total: Mapped[float] = mapped_column(Float, default=0.0)
     budget_assets: Mapped[float] = mapped_column(Float, default=0.0)
     budget_licenses: Mapped[float] = mapped_column(Float, default=0.0)
@@ -311,9 +349,12 @@ class HwProject(Base):
     end_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     portal_reference: Mapped[str] = mapped_column(String(255), default="")
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # See Project.version.
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=utc_now, onupdate=utc_now
     )
 
     assets: Mapped[list["HwAsset"]] = relationship(
@@ -362,9 +403,9 @@ class HwAsset(Base):
         ForeignKey("hardware_catalog_items.id", ondelete="SET NULL"), nullable=True
     )
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=utc_now, onupdate=utc_now
     )
 
     hw_project: Mapped[HwProject] = relationship(back_populates="assets")
@@ -407,9 +448,9 @@ class HwLicense(Base):
         ForeignKey("hardware_catalog_items.id", ondelete="SET NULL"), nullable=True
     )
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=utc_now, onupdate=utc_now
     )
 
     hw_project: Mapped[HwProject] = relationship(back_populates="licenses")
@@ -438,3 +479,67 @@ class HwBudgetAdjustment(Base):
     note: Mapped[str] = mapped_column(String(1000), default="")
 
     hw_project: Mapped[HwProject] = relationship(back_populates="adjustments")
+
+
+# ---------------------------------------------------------------------------
+# A project's `updated_at` moves when anything inside it changes
+# ---------------------------------------------------------------------------
+
+# Child model -> (foreign-key attribute, parent model). Walking this chain from any
+# row reaches the Project or HwProject that owns it.
+_OWNER: dict[type, tuple[str, type]] = {
+    Feature: ("project_id", Project),
+    Role: ("feature_id", Feature),
+    AllocationPeriod: ("role_id", Role),
+    HourlyRate: ("project_id", Project),
+    CostRate: ("project_id", Project),
+    TicketConfig: ("project_id", Project),
+    TicketQuota: ("project_id", Project),
+    HardwareItem: ("project_id", Project),
+    HwAsset: ("hw_project_id", HwProject),
+    HwLicense: ("hw_project_id", HwProject),
+    HwBudgetAdjustment: ("hw_project_id", HwProject),
+}
+
+
+def _owner_of(session: Session, obj: object) -> Project | HwProject | None:
+    link = _OWNER.get(type(obj))
+    current = obj
+    while link is not None:
+        fk_attr, parent_model = link
+        parent_id = getattr(current, fk_attr, None)
+        if parent_id is None:
+            return None
+        current = session.get(parent_model, parent_id)
+        if current is None:
+            return None
+        link = _OWNER.get(type(current))
+    return current if isinstance(current, Project | HwProject) else None
+
+
+@event.listens_for(Session, "before_flush")
+def touch_owner_timestamps(session: Session, _flush_context, _instances) -> None:
+    """Move the owning project's `updated_at` and `version` for every row written.
+
+    `onupdate` only fires for the project's own columns, so without this the
+    "recently updated" order and the "updated 3 days ago" label ignored every
+    feature, role, allocation, rate, blob and hardware change. The version is the
+    optimistic-concurrency token the write endpoints compare (see
+    `services.versioning`); it moves once per flush however many rows changed.
+    """
+    now = utc_now()
+    touched: set[int] = set()
+    for obj in list(session.new) + list(session.dirty) + list(session.deleted):
+        if obj in session.dirty and not session.is_modified(obj):
+            continue
+        if isinstance(obj, Project | HwProject):
+            # The project's own columns changed: a new or deleted project has
+            # no version to move.
+            owner = obj if obj in session.dirty else None
+        else:
+            owner = _owner_of(session, obj)
+        if owner is None or owner in session.deleted or id(owner) in touched:
+            continue
+        owner.updated_at = now
+        owner.version = (owner.version or 0) + 1
+        touched.add(id(owner))

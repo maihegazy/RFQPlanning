@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   ArrowDown,
@@ -17,12 +17,10 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { api } from '../api'
-import HwBudgetFields, {
-  budgetBreakdown,
-  EMPTY_BUDGET,
-  budgetPayload,
-  type BudgetDraft,
-} from '../components/HwBudgetFields'
+import HwBudgetFields from '../components/HwBudgetFields'
+import PlanningWindowFields from '../components/PlanningWindowFields'
+import { EMPTY_WINDOW, windowPayload, type PlanningWindowDraft } from '../hardware/planningWindow'
+import { budgetBreakdown, EMPTY_BUDGET, budgetPayload, type BudgetDraft } from '../hardware/budget'
 import type {
   HwLicenseExpiry,
   HwOverview,
@@ -37,6 +35,7 @@ import {
   EmptyState,
   ErrorBanner,
   Input,
+  KpiTile,
   Label,
   Modal,
   Spinner,
@@ -56,39 +55,6 @@ function errorMessage(err: unknown): string {
 /* -------------------------------------------------------------------------- */
 /* KPI tiles                                                                   */
 /* -------------------------------------------------------------------------- */
-
-function KpiTile({
-  label,
-  value,
-  hint,
-  alert = false,
-  children,
-}: {
-  label: string
-  value: string
-  hint: string
-  alert?: boolean
-  children?: ReactNode
-}) {
-  return (
-    <div
-      className={`rounded-xl border p-4 ${
-        alert ? 'border-rose-800 bg-rose-950/40' : 'border-slate-800 bg-slate-900/60'
-      }`}
-    >
-      <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
-      <p
-        className={`mt-1 text-xl font-bold tabular-nums ${
-          alert ? 'text-rose-300' : 'text-slate-100'
-        }`}
-      >
-        {value}
-      </p>
-      <p className="mt-1 text-xs text-slate-500">{hint}</p>
-      {children}
-    </div>
-  )
-}
 
 function CountTile({ Icon, label, value }: { Icon: LucideIcon; label: string; value: number }) {
   return (
@@ -165,7 +131,7 @@ function Kpis({ overview }: { overview: HwOverview }) {
           label="Remaining"
           value={formatEuro(dashboard.remaining)}
           hint={over ? 'Over budget' : 'Budget minus committed spend'}
-          alert={over}
+          tone={over ? 'warning' : 'default'}
         >
           <div className="mt-3">
             <div className="h-2 overflow-hidden rounded-full bg-slate-800">
@@ -186,6 +152,16 @@ function Kpis({ overview }: { overview: HwOverview }) {
         <CountTile Icon={HardDrive} label="Assets" value={overview.asset_count} />
         <CountTile Icon={KeyRound} label="Licenses" value={overview.license_count} />
       </div>
+      {overview.uncounted_rows > 0 && (
+        <p className="mb-6 flex items-start gap-2 rounded-lg border border-rose-900 bg-rose-950/40 px-4 py-2.5 text-sm text-rose-200">
+          <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            {overview.uncounted_rows} register row{overview.uncounted_rows === 1 ? '' : 's'} across
+            the projects count towards no year (a missing date, an unknown purchase type, or a date
+            outside 1990–2100). They are marked in the registers of their project.
+          </span>
+        </p>
+      )}
     </>
   )
 }
@@ -255,12 +231,16 @@ function SpendByYear({ years, totals }: { years: HwYearRow[]; totals: HwYearRow 
         <tfoot>
           <tr className="border-t-2 border-slate-700 font-semibold text-slate-100">
             <td className="py-2 pr-4">Total</td>
-            <td className="py-2 pr-4 text-right tabular-nums">{formatEuro(totals.actual_assets)}</td>
+            <td className="py-2 pr-4 text-right tabular-nums">
+              {formatEuro(totals.actual_assets)}
+            </td>
             <td className="py-2 pr-4 text-right tabular-nums">
               {formatEuro(totals.actual_licenses)}
             </td>
             <td className="py-2 pr-4 text-right tabular-nums">{formatEuro(totals.actual_total)}</td>
-            <td className="py-2 pr-4 text-right tabular-nums">{formatEuro(totals.planned_total)}</td>
+            <td className="py-2 pr-4 text-right tabular-nums">
+              {formatEuro(totals.planned_total)}
+            </td>
             <td className="py-2 pr-4 text-right tabular-nums">{formatEuro(totals.grand_total)}</td>
             <td className="py-2" />
           </tr>
@@ -294,7 +274,7 @@ type SortKey =
   | 'company'
   | 'asset_count'
   | 'license_count'
-  | 'budget_total'
+  | 'effective_budget'
   | 'actual_total'
   | 'planned_total'
   | 'remaining'
@@ -307,7 +287,7 @@ const PROJECT_COLUMNS: { key: SortKey; label: string; numeric: boolean }[] = [
   { key: 'company', label: 'Company', numeric: false },
   { key: 'asset_count', label: 'Assets', numeric: true },
   { key: 'license_count', label: 'Licenses', numeric: true },
-  { key: 'budget_total', label: 'Budget', numeric: true },
+  { key: 'effective_budget', label: 'Budget', numeric: true },
   { key: 'actual_total', label: 'Committed', numeric: true },
   { key: 'planned_total', label: 'Planned', numeric: true },
   { key: 'remaining', label: 'Remaining', numeric: true },
@@ -322,7 +302,7 @@ function sortValue(project: HwProjectRollup, key: SortKey): string | number {
       return project.company.toLowerCase()
     // Projects without a budget have no utilisation; -1 parks them at the end.
     case 'utilisation':
-      return project.budget_total > 0 ? project.actual_total / project.budget_total : -1
+      return project.effective_budget > 0 ? project.actual_total / project.effective_budget : -1
     default:
       return project[key]
   }
@@ -408,7 +388,7 @@ function ProjectsTable({
                 {project.license_count}
               </td>
               <td className="py-2 pl-4 text-right tabular-nums text-slate-400">
-                {formatEuro(project.budget_total)}
+                {formatEuro(project.effective_budget)}
               </td>
               <td className="py-2 pl-4 text-right tabular-nums text-slate-200">
                 {formatEuro(project.actual_total)}
@@ -424,7 +404,7 @@ function ProjectsTable({
                 {formatEuro(project.remaining)}
               </td>
               <td className="py-2 pl-4">
-                <UtilisationCell used={project.actual_total} budget={project.budget_total} />
+                <UtilisationCell used={project.actual_total} budget={project.effective_budget} />
               </td>
             </tr>
           ))}
@@ -474,10 +454,7 @@ function expiryLabel(daysLeft: number): string {
 }
 
 function ExpiringList({ expiring }: { expiring: HwLicenseExpiry[] }) {
-  const rows = useMemo(
-    () => [...expiring].sort((a, b) => a.days_left - b.days_left),
-    [expiring],
-  )
+  const rows = useMemo(() => [...expiring].sort((a, b) => a.days_left - b.days_left), [expiring])
 
   return (
     <ul className="max-h-96 overflow-y-auto">
@@ -587,6 +564,7 @@ function NewProjectModal({
   const [company, setCompany] = useState('')
   const [description, setDescription] = useState('')
   const [budget, setBudget] = useState<BudgetDraft>(EMPTY_BUDGET)
+  const [window, setWindow] = useState<PlanningWindowDraft>(EMPTY_WINDOW)
   const [portalReference, setPortalReference] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -602,6 +580,7 @@ function NewProjectModal({
         company: company.trim(),
         description: description.trim(),
         ...budgetPayload(budget),
+        ...windowPayload(window),
         portal_reference: portalReference.trim(),
       })
       // No setSaving(false): the caller navigates away and unmounts this form.
@@ -653,6 +632,8 @@ function NewProjectModal({
         </div>
 
         <HwBudgetFields draft={budget} onChange={setBudget} />
+
+        <PlanningWindowFields draft={window} onChange={setWindow} />
 
         <div className="sm:max-w-xs">
           <Label>Portal reference</Label>
@@ -727,8 +708,7 @@ export default function HardwareOverviewPage() {
     const needle = query.trim().toLowerCase()
     const filtered = needle
       ? rows.filter(
-          (p) =>
-            p.name.toLowerCase().includes(needle) || p.company.toLowerCase().includes(needle),
+          (p) => p.name.toLowerCase().includes(needle) || p.company.toLowerCase().includes(needle),
         )
       : [...rows]
     filtered.sort((a, b) => {
@@ -791,8 +771,8 @@ export default function HardwareOverviewPage() {
           <Card title="Spend by year" actions={<BarLegend />} className="mb-6">
             {overview.years.length === 0 ? (
               <EmptyState>
-                No purchases or planned purchases yet — years appear once assets or licenses
-                carry dates.
+                No purchases or planned purchases yet — years appear once assets or licenses carry
+                dates.
               </EmptyState>
             ) : (
               <SpendByYear years={overview.years} totals={overview.totals} />

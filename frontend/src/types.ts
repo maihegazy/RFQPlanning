@@ -47,6 +47,9 @@ export interface ProjectSummary {
   lost_reason: string | null
   base_project_id: number | null
   is_winning_scenario: boolean
+  /** Optimistic-concurrency token: moves with every write to the project or
+   *  anything inside it. Send it back as `expected_version` on writes. */
+  version: number
   created_at: string
   updated_at: string
 }
@@ -61,6 +64,17 @@ export interface RateConfig {
   risk_factor_pct: number
   ticket_story_points: Record<string, number>
   ticket_quotas: Record<string, Record<string, number>>
+  /** The hardware plan's total per project year; the cost-profit analysis
+   *  carries it as a non-labor row, billed to the customer when the flag is on. */
+  hardware_costs_per_year: Record<string, number>
+  hardware_pass_through: boolean
+  /** The project's version after the read or write. */
+  version: number
+}
+
+/** A write that refuses to overwrite a newer save (409) when the version moved. */
+export interface Versioned {
+  expected_version?: number
 }
 
 export interface PivotTable {
@@ -81,12 +95,18 @@ export interface VaultInfo {
   wrapped_dek_passphrase: string
   wrapped_dek_recovery_iv: string
   wrapped_dek_recovery: string
+  /** False on a vault from before proofs of key existed, until its first unlock. */
+  has_verifier: boolean
 }
 
 export interface MoneyBlob {
   encrypted_money: string | null
   money_iv: string | null
+  /** The project's version after the read or write. */
+  version: number
 }
+
+export type MoneyBlobUpdate = Pick<MoneyBlob, 'encrypted_money' | 'money_iv'> & Versioned
 
 export interface LegacyMoney {
   hourly_rates: Record<string, number>
@@ -165,6 +185,11 @@ export interface HardwareItemInput {
   supplier_email: string
 }
 
+/** A row of a whole-plan save: an id keeps the stored row, none creates one. */
+export interface HardwareItemUpsert extends HardwareItemInput {
+  id?: number | null
+}
+
 export interface HardwareItem extends HardwareItemInput {
   id: number
   project_id: number
@@ -175,6 +200,10 @@ export interface HardwarePlan {
   items: HardwareItem[]
   per_year: Record<string, number>
   grand_total: number
+  /** Rows planned for a year the project no longer covers. */
+  warnings: string[]
+  /** The project's version after the read or write. */
+  version: number
 }
 
 export interface PortfolioCapacity {
@@ -206,12 +235,17 @@ export interface HwProjectInput {
   budget_total: number
   budget_assets: number
   budget_licenses: number
+  /** Optional planning window: the summary always spans at least these years. */
+  start_year: number | null
+  end_year: number | null
   /** Reserved for the later link to the company portal's project list. */
   portal_reference: string
 }
 
 export interface HwProject extends HwProjectInput {
   id: number
+  /** Optimistic-concurrency token, as on `ProjectSummary`. */
+  version: number
   created_at: string
   updated_at: string
 }
@@ -222,17 +256,20 @@ export interface HwProjectRollup extends HwProject {
   actual_total: number
   planned_total: number
   /**
-   * The *effective* budget, unlike the field it shadows on `HwProjectInput`:
-   * the entered overall figure in 'overall' mode, the sum of the two component
-   * budgets in 'split' mode.
+   * What the project has to spend: the entered overall figure in 'overall'
+   * mode, the sum of the two component budgets in 'split' mode. `budget_total`
+   * (inherited) stays the stored overall figure.
    */
-  budget_total: number
+  effective_budget: number
   remaining: number
   licenses_expired: number
   licenses_expiring_90: number
 }
 
 export interface HwAssetInput {
+  /** Set on rows read from the register; a whole-register save keeps such a
+   *  row (id and created_at survive) and creates rows without one. */
+  id?: number | null
   asset_tag: string
   company: string
   name: string
@@ -259,9 +296,13 @@ export interface HwAsset extends HwAssetInput {
   /** Server-computed depreciation keyed by calendar year, e.g. `{"2025": 1192.89}`. */
   per_year: Record<string, number>
   total: number
+  /** Why the row counts towards no year (a missing date, an unknown purchase
+   *  type, a date outside 1990-2100), or null when it counts. */
+  uncounted_reason: string | null
 }
 
 export interface HwLicenseInput {
+  id?: number | null
   license_tag: string
   company: string
   name: string
@@ -287,6 +328,13 @@ export interface HwLicense extends HwLicenseInput {
   hw_project_id: number
   per_year: Record<string, number>
   total: number
+  uncounted_reason: string | null
+}
+
+/** What a whole-register save returns: the stored rows and the new version. */
+export interface HwRegisterResult<T> {
+  version: number
+  items: T[]
 }
 
 /** "Special Cases Budget": a manual delta added on top of a year's computed cost. */
@@ -350,6 +398,8 @@ export interface HwSummary {
   dashboard: HwDashboard
   asset_count: number
   license_count: number
+  /** Register rows the engine could not count (see `HwAsset.uncounted_reason`). */
+  uncounted_rows: number
   adjustments: HwAdjustment[]
 }
 
@@ -364,6 +414,7 @@ export interface HwOverview {
   project_count: number
   asset_count: number
   license_count: number
+  uncounted_rows: number
 }
 
 /** Result of a `dry_run=true` import: nothing has been written yet. */
@@ -374,9 +425,16 @@ export interface HwImportPreview {
   sheets_found: string[]
 }
 
+/** `append` adds the workbook's rows to the register; `replace` first clears
+ *  every register whose sheet the workbook carries. */
+export type HwImportMode = 'append' | 'replace'
+
 export interface HwImportResult {
   created_assets: number
   created_licenses: number
+  /** Rows removed first when the import replaced a register. */
+  replaced_assets: number
+  replaced_licenses: number
   warnings: string[]
 }
 

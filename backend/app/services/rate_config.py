@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from .. import models
 from ..config import TICKET_SIZES
+from .hardware_plan import plan_costs_per_year
 
 
 def get_rate_config(project: models.Project) -> dict:
@@ -28,6 +29,9 @@ def get_rate_config(project: models.Project) -> dict:
         "risk_factor_pct": project.risk_factor_pct,
         "ticket_story_points": ticket_story_points,
         "ticket_quotas": ticket_quotas,
+        "hardware_costs_per_year": plan_costs_per_year(project),
+        "hardware_pass_through": project.hardware_pass_through,
+        "version": project.version,
     }
 
 
@@ -37,6 +41,8 @@ def update_rate_config(db: Session, project: models.Project, data) -> None:
         project.sp_to_hours = data.sp_to_hours
     if data.risk_factor_pct is not None:
         project.risk_factor_pct = data.risk_factor_pct
+    if data.hardware_pass_through is not None:
+        project.hardware_pass_through = data.hardware_pass_through
 
     if data.ticket_story_points is not None:
         existing = {tc.size: tc for tc in project.ticket_configs}

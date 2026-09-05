@@ -6,6 +6,7 @@ register row is returned with the sheet's per-year depreciation columns attached
 """
 
 from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
@@ -19,9 +20,13 @@ from ..config import (
     HW_LEASING_MONTHS,
     HW_LICENSE_CATEGORIES,
     HW_PURCHASE_TYPES,
+    MAX_UPLOAD_BYTES,
 )
 from ..database import get_db
 from ..services import hw_depreciation, hw_excel
+from ..services.http import attachment_disposition
+from ..services.loading import project_registers
+from ..services.versioning import require_version
 from .hardware import XLSX_MEDIA_TYPE
 
 router = APIRouter(prefix="/api", tags=["hw-management"])
@@ -35,7 +40,12 @@ LICENSE_FIELDS = tuple(schemas.HwLicenseInput.model_fields)
 # ---------------------------------------------------------------------------
 
 def get_hw_project_or_404(project_id: int, db: Session) -> models.HwProject:
-    project = db.get(models.HwProject, project_id)
+    project = (
+        db.query(models.HwProject)
+        .options(*project_registers())
+        .filter(models.HwProject.id == project_id)
+        .one_or_none()
+    )
     if project is None:
         raise HTTPException(status_code=404, detail="Hardware project not found")
     return project
@@ -55,6 +65,39 @@ def get_hw_license_or_404(license_id: int, db: Session) -> models.HwLicense:
     return record
 
 
+def upsert_rows(existing_rows: list, items: list, model: type, label: str) -> list:
+    """The register a whole-grid save describes, reusing the stored rows.
+
+    A row that names an id keeps that row (so ids and `created_at` survive a save
+    and an audit trail stays possible); a row without one is created; stored rows
+    the list no longer names are removed by the relationship's delete-orphan
+    cascade once the caller assigns the result.
+    """
+    existing = {row.id: row for row in existing_rows}
+    seen: set[int] = set()
+    kept = []
+    for position, item in enumerate(items, start=1):
+        payload = item.model_dump(exclude={"id"})
+        if item.id is None:
+            kept.append(model(**payload))
+            continue
+        record = existing.get(item.id)
+        if record is None:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Row {position}: {label} {item.id} is not in this register",
+            )
+        if item.id in seen:
+            raise HTTPException(
+                status_code=422, detail=f"Row {position}: {label} {item.id} is listed twice"
+            )
+        seen.add(item.id)
+        for field, value in payload.items():
+            setattr(record, field, value)
+        kept.append(record)
+    return kept
+
+
 def check_catalog_items(catalog_item_ids, db: Session) -> None:
     """Reject unknown catalog links before writing.
 
@@ -71,7 +114,9 @@ def check_catalog_items(catalog_item_ids, db: Session) -> None:
     }
     missing = sorted(wanted - found)
     if missing:
-        raise HTTPException(status_code=404,
+        # The body names a catalog item that does not exist: the request is
+        # invalid (422); 404 is for the path's resource.
+        raise HTTPException(status_code=422,
                             detail=f"Catalog item not found: {missing[0]}")
 
 
@@ -105,8 +150,11 @@ def project_summary(project: models.HwProject, today: date) -> dict:
     return summary
 
 
-def project_rollup(project: models.HwProject, today: date) -> dict:
-    summary = summarize_project(project, today)
+def project_rollup(project: models.HwProject, today: date,
+                   summary: dict | None = None) -> dict:
+    """The list-row view of a project; pass `summary` when it is already computed."""
+    if summary is None:
+        summary = summarize_project(project, today)
     risk = summary["risk"]
     data = schemas.HwProjectOut.model_validate(project).model_dump()
     data.update(
@@ -114,7 +162,7 @@ def project_rollup(project: models.HwProject, today: date) -> dict:
         license_count=summary["license_count"],
         actual_total=summary["totals"]["actual_total"],
         planned_total=summary["totals"]["planned_total"],
-        budget_total=summary["dashboard"]["budget_total"],
+        effective_budget=summary["dashboard"]["budget_total"],
         remaining=summary["dashboard"]["remaining"],
         licenses_expired=risk["expired"],
         # The renewal-risk tile counts what still has to be renewed, so the
@@ -126,29 +174,30 @@ def project_rollup(project: models.HwProject, today: date) -> dict:
     return data
 
 
-def _register_row(row, fields: tuple[str, ...], costs: dict[str, float]) -> dict:
+def _register_row(row, fields: tuple[str, ...], costs: dict, reason: str | None) -> dict:
     data = {field: getattr(row, field) for field in fields}
     data["id"] = row.id
     data["hw_project_id"] = row.hw_project_id
-    data["per_year"] = costs
-    # Adding up the year columns, so the row total always matches what the grid
-    # displays rather than drifting a cent from it.
-    data["total"] = round(sum(costs.values()), 2)
+    data["per_year"] = costs["per_year"]
+    data["total"] = costs["total"]
+    data["uncounted_reason"] = reason
     return data
 
 
 def serialize_asset(asset: models.HwAsset, years: list[int]) -> dict:
-    return _register_row(asset, ASSET_FIELDS, hw_depreciation.per_year(
-        asset.purchase_type, asset.purchase_date, asset.eol_date,
-        asset.purchase_cost, years,
-    ))
+    return _register_row(
+        asset, ASSET_FIELDS,
+        hw_depreciation.asset_year_costs(asset, years),
+        hw_depreciation.asset_uncounted_reason(asset),
+    )
 
 
 def serialize_license(record: models.HwLicense, years: list[int]) -> dict:
-    return _register_row(record, LICENSE_FIELDS, hw_depreciation.per_year(
-        record.depreciation, record.purchase_date, record.termination_date,
-        record.purchase_cost, years,
-    ))
+    return _register_row(
+        record, LICENSE_FIELDS,
+        hw_depreciation.license_year_costs(record, years),
+        hw_depreciation.license_uncounted_reason(record),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -173,6 +222,7 @@ def get_hw_overview(db: Session = Depends(get_db)):
     today = date.today()
     projects = (
         db.query(models.HwProject)
+        .options(*project_registers())
         .order_by(models.HwProject.name, models.HwProject.id)
         .all()
     )
@@ -197,6 +247,7 @@ def list_hw_projects(db: Session = Depends(get_db)):
     today = date.today()
     projects = (
         db.query(models.HwProject)
+        .options(*project_registers())
         .order_by(models.HwProject.name, models.HwProject.id)
         .all()
     )
@@ -258,23 +309,28 @@ def create_hw_asset(project_id: int, data: schemas.HwAssetInput,
                     db: Session = Depends(get_db)):
     project = get_hw_project_or_404(project_id, db)
     check_catalog_items([data.catalog_item_id], db)
-    asset = models.HwAsset(hw_project_id=project.id, **data.model_dump())
+    asset = models.HwAsset(hw_project_id=project.id, **data.model_dump(exclude={"id"}))
     db.add(asset)
     db.commit()
     db.refresh(asset)
     return serialize_asset(asset, project_years(project))
 
 
-@router.put("/hw/projects/{project_id}/assets", response_model=list[schemas.HwAssetOut])
+@router.put("/hw/projects/{project_id}/assets", response_model=schemas.HwAssetBulkOut)
 def replace_hw_assets(project_id: int, data: schemas.HwAssetBulk,
                       db: Session = Depends(get_db)):
     """Save the whole assets grid: the posted list becomes the project's register."""
     project = get_hw_project_or_404(project_id, db)
+    require_version(db, project, data.expected_version)
     check_catalog_items([item.catalog_item_id for item in data.items], db)
-    project.assets = [models.HwAsset(**item.model_dump()) for item in data.items]
+    project.assets = upsert_rows(project.assets, data.items, models.HwAsset, "asset")
     db.commit()
+    db.refresh(project)
     years = project_years(project)
-    return [serialize_asset(asset, years) for asset in project.assets]
+    return {
+        "version": project.version,
+        "items": [serialize_asset(asset, years) for asset in project.assets],
+    }
 
 
 @router.put("/hw/assets/{asset_id}", response_model=schemas.HwAssetOut)
@@ -282,7 +338,7 @@ def update_hw_asset(asset_id: int, data: schemas.HwAssetInput,
                     db: Session = Depends(get_db)):
     asset = get_hw_asset_or_404(asset_id, db)
     check_catalog_items([data.catalog_item_id], db)
-    for field, value in data.model_dump().items():
+    for field, value in data.model_dump(exclude={"id"}).items():
         setattr(asset, field, value)
     db.commit()
     db.refresh(asset)
@@ -314,7 +370,7 @@ def create_hw_license(project_id: int, data: schemas.HwLicenseInput,
                       db: Session = Depends(get_db)):
     project = get_hw_project_or_404(project_id, db)
     check_catalog_items([data.catalog_item_id], db)
-    record = models.HwLicense(hw_project_id=project.id, **data.model_dump())
+    record = models.HwLicense(hw_project_id=project.id, **data.model_dump(exclude={"id"}))
     db.add(record)
     db.commit()
     db.refresh(record)
@@ -322,16 +378,21 @@ def create_hw_license(project_id: int, data: schemas.HwLicenseInput,
 
 
 @router.put("/hw/projects/{project_id}/licenses",
-            response_model=list[schemas.HwLicenseOut])
+            response_model=schemas.HwLicenseBulkOut)
 def replace_hw_licenses(project_id: int, data: schemas.HwLicenseBulk,
                         db: Session = Depends(get_db)):
     """Save the whole licenses grid: the posted list becomes the project's register."""
     project = get_hw_project_or_404(project_id, db)
+    require_version(db, project, data.expected_version)
     check_catalog_items([item.catalog_item_id for item in data.items], db)
-    project.licenses = [models.HwLicense(**item.model_dump()) for item in data.items]
+    project.licenses = upsert_rows(project.licenses, data.items, models.HwLicense, "license")
     db.commit()
+    db.refresh(project)
     years = project_years(project)
-    return [serialize_license(record, years) for record in project.licenses]
+    return {
+        "version": project.version,
+        "items": [serialize_license(record, years) for record in project.licenses],
+    }
 
 
 @router.put("/hw/licenses/{license_id}", response_model=schemas.HwLicenseOut)
@@ -339,7 +400,7 @@ def update_hw_license(license_id: int, data: schemas.HwLicenseInput,
                       db: Session = Depends(get_db)):
     record = get_hw_license_or_404(license_id, db)
     check_catalog_items([data.catalog_item_id], db)
-    for field, value in data.model_dump().items():
+    for field, value in data.model_dump(exclude={"id"}).items():
         setattr(record, field, value)
     db.commit()
     db.refresh(record)
@@ -365,10 +426,11 @@ def list_hw_adjustments(project_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/hw/projects/{project_id}/adjustments",
-            response_model=list[schemas.HwAdjustment])
+            response_model=schemas.HwAdjustmentBulkOut)
 def replace_hw_adjustments(project_id: int, data: schemas.HwAdjustmentBulk,
                            db: Session = Depends(get_db)):
     project = get_hw_project_or_404(project_id, db)
+    require_version(db, project, data.expected_version)
     project.adjustments = []
     # A flush orders the deletes before the inserts; without it a replacement
     # reusing a (year, kind) pair would collide with the row it is replacing.
@@ -377,43 +439,117 @@ def replace_hw_adjustments(project_id: int, data: schemas.HwAdjustmentBulk,
         models.HwBudgetAdjustment(**item.model_dump()) for item in data.items
     ]
     db.commit()
-    return sorted(project.adjustments, key=lambda a: (a.year, a.kind))
+    db.refresh(project)
+    return {
+        "version": project.version,
+        "items": sorted(project.adjustments, key=lambda a: (a.year, a.kind)),
+    }
 
 
 # ---------------------------------------------------------------------------
 # Workbook import / export
 # ---------------------------------------------------------------------------
 
+def _duplicate_warnings(project: models.HwProject,
+                        preview: schemas.HwImportPreview) -> list[str]:
+    """Rows whose sheet ID is already in the register (or twice in the file)."""
+    warnings = []
+    for label, incoming, existing in (
+        ("Assets", [a.asset_tag for a in preview.assets],
+         [a.asset_tag for a in project.assets]),
+        ("Licenses", [row.license_tag for row in preview.licenses],
+         [row.license_tag for row in project.licenses]),
+    ):
+        tags = [tag.strip() for tag in incoming if tag and tag.strip()]
+        known = {tag.strip() for tag in existing if tag and tag.strip()}
+        repeated = sorted({tag for tag in tags if tags.count(tag) > 1})
+        clashing = sorted({tag for tag in tags if tag in known})
+        if repeated:
+            warnings.append(
+                f"{label}: {len(repeated)} ID(s) appear more than once in the file "
+                f"({', '.join(repeated[:5])}{', …' if len(repeated) > 5 else ''})"
+            )
+        if clashing:
+            warnings.append(
+                f"{label}: {len(clashing)} row(s) carry an ID that is already in the "
+                f"register ({', '.join(clashing[:5])}{', …' if len(clashing) > 5 else ''}); "
+                "appending adds them a second time, replacing the register does not"
+            )
+    return warnings
+
+
+def _read_upload(file: UploadFile) -> bytes:
+    """The upload's bytes, or a 413 once it is bigger than the configured cap.
+
+    The whole workbook has to sit in memory for openpyxl, so the cap is what keeps
+    one oversized (or hostile) upload from taking the process down. Reading one
+    byte past the cap is enough to know; the rest is never pulled in.
+    """
+    content = file.file.read(MAX_UPLOAD_BYTES + 1)
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"The workbook is larger than the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB "
+                "upload limit"
+            ),
+        )
+    return content
+
+
 @router.post("/hw/projects/{project_id}/import")
 def import_hw_workbook(project_id: int, file: UploadFile = File(...),
-                       dry_run: bool = True, db: Session = Depends(get_db)):
+                       dry_run: bool = True,
+                       mode: Literal["append", "replace"] = "append",
+                       db: Session = Depends(get_db)):
     """Read the working document's Assets and Licenses sheets into the registers.
 
-    `dry_run` previews the parse; only `dry_run=false` appends the rows.
+    `dry_run` previews the parse; only `dry_run=false` writes. `mode=append` adds
+    the rows to what is there, `mode=replace` first clears every register whose
+    sheet the workbook carries (a register the file does not mention is kept).
     """
     project = get_hw_project_or_404(project_id, db)
+    content = _read_upload(file)
     try:
-        parsed = hw_excel.parse_workbook(file.file.read())
+        parsed = hw_excel.parse_workbook(content)
+        # A pydantic ValidationError is a ValueError: a cell the parser let through
+        # but the schema refuses is reported as a bad file, not a server error.
+        preview = schemas.HwImportPreview(
+            assets=parsed["assets"],
+            licenses=parsed["licenses"],
+            warnings=parsed["warnings"],
+            sheets_found=parsed["sheets_found"],
+        )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    preview = schemas.HwImportPreview(
-        assets=parsed["assets"],
-        licenses=parsed["licenses"],
-        warnings=parsed["warnings"],
-        sheets_found=parsed["sheets_found"],
-    )
+    preview.warnings = preview.warnings + _duplicate_warnings(project, preview)
     if dry_run:
         return preview
+    if not preview.assets and not preview.licenses:
+        raise HTTPException(status_code=400, detail="The workbook holds no rows to import")
+
+    found = {name.strip().lower() for name in preview.sheets_found}
+    replaced_assets = replaced_licenses = 0
+    if mode == "replace":
+        if any(name in hw_excel.SHEET_ALIASES[hw_excel.ASSET_SHEET] for name in found):
+            replaced_assets = len(project.assets)
+            project.assets = []
+        if any(name in hw_excel.SHEET_ALIASES[hw_excel.LICENSE_SHEET] for name in found):
+            replaced_licenses = len(project.licenses)
+            project.licenses = []
+        db.flush()
 
     for item in preview.assets:
-        db.add(models.HwAsset(hw_project_id=project.id, **item.model_dump()))
+        db.add(models.HwAsset(hw_project_id=project.id, **item.model_dump(exclude={"id"})))
     for item in preview.licenses:
-        db.add(models.HwLicense(hw_project_id=project.id, **item.model_dump()))
+        db.add(models.HwLicense(hw_project_id=project.id, **item.model_dump(exclude={"id"})))
     db.commit()
     return schemas.HwImportResult(
         created_assets=len(preview.assets),
         created_licenses=len(preview.licenses),
+        replaced_assets=replaced_assets,
+        replaced_licenses=replaced_licenses,
         warnings=preview.warnings,
     )
 
@@ -431,11 +567,14 @@ def export_hw_project_xlsx(project_id: int, db: Session = Depends(get_db)):
         project, project.assets, project.licenses,
         project_summary(project, today), catalog_items, today,
     )
-    filename = f"{project.name} - Hardware Management"
     return Response(
         content=content,
         media_type=XLSX_MEDIA_TYPE,
-        headers={"Content-Disposition": f'attachment; filename="{filename}.xlsx"'},
+        headers={
+            "Content-Disposition": attachment_disposition(
+                f"{project.name} - Hardware Management.xlsx"
+            )
+        },
     )
 
 
@@ -445,7 +584,6 @@ def hw_import_template_xlsx():
         content=hw_excel.build_import_template(),
         media_type=XLSX_MEDIA_TYPE,
         headers={
-            "Content-Disposition":
-                'attachment; filename="Hardware Import Template.xlsx"'
+            "Content-Disposition": attachment_disposition("Hardware Import Template.xlsx")
         },
     )

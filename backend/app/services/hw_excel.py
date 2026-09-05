@@ -11,6 +11,7 @@ symbols and a stray leading space in the Licenses `" Name"` header.
 
 import datetime
 import io
+import math
 import re
 from typing import Any
 
@@ -18,12 +19,23 @@ import openpyxl
 import xlsxwriter
 
 from ..config import (
+    DATE_WINDOW_YEARS,
     HW_ASSET_CATEGORIES,
     HW_ASSET_STATUSES,
     HW_LICENSE_CATEGORIES,
     HW_PURCHASE_TYPES,
+    MAX_MONEY,
+    MAX_QUANTITY,
 )
 from .hw_depreciation import asset_year_costs, license_year_costs
+
+FIRST_YEAR, LAST_YEAR = DATE_WINDOW_YEARS
+
+# User text must never become a formula in the recipient's Excel.
+WORKBOOK_OPTIONS = {"in_memory": True, "strings_to_formulas": False}
+
+# A hand-written total line, in the ID column (our own footer) or under the name.
+FOOTER_WORDS = ("total", "grand total")
 
 # Palette and number formats shared with the budget workbook
 # (frontend/src/money/excelBudget.ts) so both exports look like one product.
@@ -293,11 +305,12 @@ def _write_register(workbook, fmts: dict[str, Any], sheet_name: str,
         for col, (_header, field, kind, default) in enumerate(fields):
             _write_cell(worksheet, index, col,
                         getattr(row, field, default), kind, fmts, widths)
-        costs = year_costs(row, years)["per_year"]
+        costs = year_costs(row, years)
         for offset, year in enumerate(years):
-            value = costs.get(str(year), 0.0)
-            year_totals[offset] += value
-            worksheet.write_number(index, year_start + offset, value, fmts["money"])
+            # Cells show cents; the footer sums full precision like the Summary sheet.
+            year_totals[offset] += costs["raw"][offset]
+            worksheet.write_number(index, year_start + offset,
+                                   costs["per_year"][str(year)], fmts["money"])
 
     total_row = len(rows) + 1
     worksheet.write_string(total_row, 0, "TOTAL", fmts["total_label"])
@@ -383,7 +396,7 @@ def _write_dashboard(workbook, fmts: dict[str, Any], project: Any, summary: dict
 
     expiring = summary.get("expiring") or []
     if expiring:
-        row = section(row + 1, "Upcoming renewals (next 90 days)")
+        row = section(row + 1, "Renewals: expired within the last year, or due within 90 days")
         for col, header in enumerate(["Name", "Manufacturer", "Expiration", "Days left"]):
             worksheet.write_string(row, col + 1, header, fmts["header"])
         row += 1
@@ -541,7 +554,7 @@ def build_project_workbook(project: Any, assets: list[Any], licenses: list[Any],
     years = [int(row["year"]) for row in summary.get("years", [])]
 
     buffer = io.BytesIO()
-    workbook = xlsxwriter.Workbook(buffer, {'in_memory': True})
+    workbook = xlsxwriter.Workbook(buffer, WORKBOOK_OPTIONS)
     fmts = _formats(workbook)
 
     _write_dashboard(workbook, fmts, project, summary, today)
@@ -622,7 +635,7 @@ def _write_readme(workbook, fmts: dict[str, Any]) -> None:
 def build_import_template() -> bytes:
     """Empty Assets + Licenses sheets carrying exactly the import headers."""
     buffer = io.BytesIO()
-    workbook = xlsxwriter.Workbook(buffer, {'in_memory': True})
+    workbook = xlsxwriter.Workbook(buffer, WORKBOOK_OPTIONS)
     fmts = _formats(workbook)
 
     _write_template_sheet(workbook, fmts, ASSET_SHEET, ASSET_FIELDS, {
@@ -672,35 +685,48 @@ def _parse_number(value: Any) -> float | None:
         head, _, tail = text.rpartition(separator)
         # A single separator with a full group of three digits behind it is a
         # thousands separator in both conventions ("1.234" and "1,234" are 1234);
-        # anything else is the decimal point ("29,90", "12.5").
-        if text.count(separator) > 1 or (len(tail) == 3 and head.isdigit()):
+        # anything else is the decimal point ("29,90", "12.5"). A bare or zero
+        # head can only be a decimal: ".5" and "0,500" are half, not five hundred.
+        grouped = len(tail) == 3 and head.isdigit() and head != "0"
+        if text.count(separator) > 1 or grouped:
             text = text.replace(separator, "")
         else:
-            text = f"{head}.{tail}" if head else tail
+            text = f"{head or '0'}.{tail}"
     try:
-        return sign * float(text)
+        value = sign * float(text)
     except ValueError:
         return None
+    # "inf" and "nan" are floats to Python but not numbers to a register.
+    return value if math.isfinite(value) else None
+
+
+def _in_window(value: datetime.date) -> bool:
+    return FIRST_YEAR <= value.year <= LAST_YEAR
 
 
 def _parse_date(value: Any) -> datetime.date | None:
+    """A date inside the window, or None (the caller warns when the cell was not blank)."""
     if _is_blank(value):
         return None
     parsed = _as_date(value)
     if parsed is not None:
-        return parsed
+        return parsed if _in_window(parsed) else None
     if isinstance(value, (int, float)) and not isinstance(value, bool):
-        # A date column that lost its number format reads back as a serial.
+        # A date column that lost its number format reads back as a serial. A bare
+        # year typed into the column is a number too (2026 would be 1905-07-18), so
+        # only a serial that lands inside the window is trusted.
         if 1 <= value <= EXCEL_SERIAL_MAX:
-            return EXCEL_EPOCH + datetime.timedelta(days=int(value))
+            parsed = EXCEL_EPOCH + datetime.timedelta(days=int(value))
+            return parsed if _in_window(parsed) else None
         return None
 
     text = str(value).strip().replace("T", " ").split(" ")[0]
     for fmt in DATE_FORMATS:
         try:
-            return datetime.datetime.strptime(text, fmt).date()
+            parsed = datetime.datetime.strptime(text, fmt).date()
         except ValueError:
             continue
+        return parsed if _in_window(parsed) else None
     return None
 
 
@@ -804,11 +830,13 @@ def _parse_row(read, row: int, columns: dict[int, tuple[str, str, str, Any]],
             parsed = _parse_date(raw)
             if parsed is None and not _is_blank(raw):
                 warnings.append(f"{sheet_name} row {row}: '{header}' value "
-                                f"'{_text(raw)}' is not a date, left empty")
+                                f"'{_text(raw)}' is not a date between {FIRST_YEAR} "
+                                f"and {LAST_YEAR}, left empty")
             values[field] = parsed.isoformat() if parsed else None
             has_data = has_data or parsed is not None
         elif kind in ("money", "int"):
             number = _parse_number(raw)
+            limit = MAX_QUANTITY if kind == "int" else MAX_MONEY
             if number is None:
                 warnings.append(f"{sheet_name} row {row}: '{header}' value "
                                 f"'{_text(raw)}' is not a number, used {default}")
@@ -818,6 +846,12 @@ def _parse_row(read, row: int, columns: dict[int, tuple[str, str, str, Any]],
                 warnings.append(f"{sheet_name} row {row}: '{header}' value "
                                 f"'{_text(raw)}' is negative, used 0")
                 number = 0.0
+            elif number > limit:
+                warnings.append(f"{sheet_name} row {row}: '{header}' value "
+                                f"'{_text(raw)}' is larger than any real "
+                                f"{'quantity' if kind == 'int' else 'amount'}, "
+                                f"used {default}")
+                number = None
             if number is None or _is_blank(raw):
                 values[field] = default
             else:
@@ -855,10 +889,18 @@ def _parse_row(read, row: int, columns: dict[int, tuple[str, str, str, Any]],
             elif field == "name":
                 name_header = header
 
+    if (
+        _norm(values.get("name")) in FOOTER_WORDS
+        and _norm(tag) in ("", *FOOTER_WORDS)
+        and not values.get("serial")
+        and not values.get("purchase_date")
+    ):
+        return None  # a total line written under the name column by hand
+
     if not values.get("name"):
         # "TOTAL" is the footer our own export writes, so re-importing an export
         # does not report it as a broken row.
-        if not has_data or _norm(tag) in ("total", "grand total"):
+        if not has_data or _norm(tag) in FOOTER_WORDS:
             return None
         # The real working document leaves the name blank on most licence rows and
         # identifies them by category + manufacturer instead. Dropping those rows
@@ -906,7 +948,8 @@ def _defaults(fields: list[tuple[str, str, str, Any]]) -> dict[str, Any]:
 
 
 def _parse_sheet(worksheet, fields: list[tuple[str, str, str, Any]],
-                 warnings: list[str]) -> list[dict[str, Any]]:
+                 warnings: list[str]) -> list[dict[str, Any]] | None:
+    """The sheet's rows, or None when no header row could be found in it."""
     sheet_name = worksheet.title.strip() or "sheet"
     read = _cell_reader(worksheet)
     max_row = worksheet.max_row or 0
@@ -915,13 +958,14 @@ def _parse_sheet(worksheet, fields: list[tuple[str, str, str, Any]],
 
     header_row = _find_header_row(read, max_row, max_col, known)
     if header_row is None:
-        warnings.append(f"{sheet_name}: no header row found, sheet skipped")
-        return []
+        warnings.append(f"{sheet_name}: no header row found in the first "
+                        f"{HEADER_SCAN_ROWS} rows, sheet skipped")
+        return None
 
     columns = _map_columns(read, header_row, max_col, fields, sheet_name, warnings)
     if not columns:
         warnings.append(f"{sheet_name}: no known columns found, sheet skipped")
-        return []
+        return None
 
     blank = _defaults(fields)
     rows = []
@@ -932,12 +976,23 @@ def _parse_sheet(worksheet, fields: list[tuple[str, str, str, Any]],
     return rows
 
 
-def _find_sheet(workbook, wanted: str):
+def _find_sheets(workbook, wanted: str) -> list:
     aliases = SHEET_ALIASES[wanted]
-    for title in workbook.sheetnames:
-        if _norm(title) in aliases:
-            return workbook[title]
-    return None
+    return [workbook[title] for title in workbook.sheetnames if _norm(title) in aliases]
+
+
+def _read_register(sheets: list, label: str, fields: list[tuple[str, str, str, Any]],
+                   warnings: list[str], sheets_found: list[str]) -> list[dict] | None:
+    """Rows of the first matching sheet; None when no matching sheet had a header."""
+    if not sheets:
+        warnings.append(f"No {label} sheet found")
+        return []
+    if len(sheets) > 1:
+        titles = ", ".join(f"'{sheet.title}'" for sheet in sheets)
+        warnings.append(f"Several sheets look like the {label} register ({titles}); "
+                        f"only '{sheets[0].title}' was read")
+    sheets_found.append(sheets[0].title)
+    return _parse_sheet(sheets[0], fields, warnings)
 
 
 def parse_workbook(data: bytes) -> dict[str, Any]:
@@ -947,27 +1002,24 @@ def parse_workbook(data: bytes) -> dict[str, Any]:
     except Exception as exc:  # openpyxl raises a zoo of types for broken files
         raise ValueError(f"could not read workbook: {exc}") from exc
 
-    asset_sheet = _find_sheet(workbook, ASSET_SHEET)
-    license_sheet = _find_sheet(workbook, LICENSE_SHEET)
-    if asset_sheet is None and license_sheet is None:
+    asset_sheets = _find_sheets(workbook, ASSET_SHEET)
+    license_sheets = _find_sheets(workbook, LICENSE_SHEET)
+    if not asset_sheets and not license_sheets:
         raise ValueError("no Assets or Licenses sheet found")
 
     warnings: list[str] = []
     sheets_found: list[str] = []
-
-    if asset_sheet is None:
-        warnings.append(f"No {ASSET_SHEET} sheet found")
-        assets: list[dict[str, Any]] = []
-    else:
-        sheets_found.append(asset_sheet.title)
-        assets = _parse_sheet(asset_sheet, ASSET_FIELDS, warnings)
-
-    if license_sheet is None:
-        warnings.append(f"No {LICENSE_SHEET} sheet found")
-        licenses: list[dict[str, Any]] = []
-    else:
-        sheets_found.append(license_sheet.title)
-        licenses = _parse_sheet(license_sheet, LICENSE_FIELDS, warnings)
+    assets = _read_register(asset_sheets, ASSET_SHEET, ASSET_FIELDS, warnings, sheets_found)
+    licenses = _read_register(license_sheets, LICENSE_SHEET, LICENSE_FIELDS, warnings,
+                              sheets_found)
+    if assets is None and licenses is None or (assets is None and not license_sheets) \
+            or (licenses is None and not asset_sheets):
+        raise ValueError(
+            "no header row found: the Assets/Licenses sheet must carry the template's "
+            f"column headers within its first {HEADER_SCAN_ROWS} rows"
+        )
+    assets = assets or []
+    licenses = licenses or []
 
     if len(warnings) > MAX_WARNINGS:
         hidden = len(warnings) - MAX_WARNINGS

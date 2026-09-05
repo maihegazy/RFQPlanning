@@ -120,8 +120,17 @@ function writeCostProfitSheet(wb: ExcelJS.Workbook, plan: BudgetPlan) {
   const years = [...new Set(plan.cost_profit_summary.map((r) => r.year))].sort()
   for (const year of years) {
     const yearData = plan.cost_profit_summary.filter((r) => r.year === year)
-    const headers = ['Year', 'Location', 'ManHours', 'Cost', 'SellingPrice',
-      'HourlyCost', 'HourlyRate', 'Profit', 'Profit%']
+    const headers = [
+      'Year',
+      'Location',
+      'ManHours',
+      'Cost',
+      'SellingPrice',
+      'HourlyCost',
+      'HourlyRate',
+      'Profit',
+      'Profit%',
+    ]
     headers.forEach((h, col) => setCell(sheet, row, col, h, { bold: true, bg: YELLOW }))
     row += 1
 
@@ -145,7 +154,8 @@ function writeCostProfitSheet(wb: ExcelJS.Workbook, plan: BudgetPlan) {
     if (nlCost !== 0 || nlBilled !== 0) {
       setCell(sheet, row, 0, '')
       setCell(sheet, row, 1, `Non-labor (${nl.map((r) => r.category).join(', ')})`, {
-        align: 'left', fontColor: 'FF6B7A99',
+        align: 'left',
+        fontColor: 'FF6B7A99',
       })
       setCell(sheet, row, 2, '—')
       setCell(sheet, row, 3, nlCost, { numFmt: EURO_FMT })
@@ -175,7 +185,11 @@ function writeCostProfitSheet(wb: ExcelJS.Workbook, plan: BudgetPlan) {
 
   if (plan.non_labor_summary.length > 0) {
     setCell(sheet, row, 0, 'Non-Labor Costs', {
-      bold: true, fontSize: 14, fontColor: DARK, align: 'left', border: false,
+      bold: true,
+      fontSize: 14,
+      fontColor: DARK,
+      align: 'left',
+      border: false,
     })
     row += 2
     const nlHeaders = ['Year', 'Category', 'Cost', 'Billed']
@@ -204,8 +218,16 @@ function writeCostProfitSheet(wb: ExcelJS.Workbook, plan: BudgetPlan) {
   const ticketYears = [...new Set(plan.ticket_analysis.map((r) => r.year))].sort()
   for (const year of ticketYears) {
     const yearData = plan.ticket_analysis.filter((r) => r.year === year)
-    const headers = ['Year', 'Size', 'StoryPoints', 'HoursPerTicket',
-      'NumTickets', 'TotalHours', 'HourlyRate', 'Revenue']
+    const headers = [
+      'Year',
+      'Size',
+      'StoryPoints',
+      'HoursPerTicket',
+      'NumTickets',
+      'TotalHours',
+      'HourlyRate',
+      'Revenue',
+    ]
     headers.forEach((h, col) => setCell(sheet, row, col, h, { bold: true, bg: YELLOW }))
     row += 1
 
@@ -312,7 +334,9 @@ function writeConfigSheet(
   sectionHeader('TICKET CONFIGURATION')
   const quotaYears = Object.keys(rates.ticket_quotas).sort()
   const headers = ['Size', 'Story-points', 'Price (€)', ...quotaYears.map((y) => `Quota ${y} (%)`)]
-  headers.forEach((h, col) => setCell(sheet, row, col, h, { bold: true, bg: DARK, fontColor: 'FFFFFFFF' }))
+  headers.forEach((h, col) =>
+    setCell(sheet, row, col, h, { bold: true, bg: DARK, fontColor: 'FFFFFFFF' }),
+  )
   row += 1
   for (const size of ['Small', 'Medium', 'Large']) {
     const key = size.toLowerCase()
@@ -349,18 +373,21 @@ function writeConfigSheet(
   for (let c = 5; c < 4 + quotaYears.length; c++) sheet.getColumn(c).width = 15
 }
 
-function writeHardwareSheet(
-  wb: ExcelJS.Workbook,
-  project: Project,
-  hardware: HardwarePlan,
-) {
+function writeHardwareSheet(wb: ExcelJS.Workbook, project: Project, hardware: HardwarePlan) {
   const sheet = wb.addWorksheet('Hardware')
   const years: number[] = []
   for (let y = project.start_year; y <= project.end_year; y++) years.push(y)
 
   const headers = [
-    'ASPICE', 'Item', 'Yearly/Once', 'Unit Cost', 'Qty',
-    ...years.map(String), 'Total', 'Supplier', 'Supplier Email',
+    'ASPICE',
+    'Item',
+    'Yearly/Once',
+    'Unit Cost',
+    'Qty',
+    ...years.map(String),
+    'Total',
+    'Supplier',
+    'Supplier Email',
   ]
   headers.forEach((h, col) => setCell(sheet, 0, col, h, { bold: true, bg: YELLOW }))
 
@@ -374,10 +401,7 @@ function writeHardwareSheet(
     setCell(sheet, row, 3, item.unit_cost, { numFmt: EURO_FMT })
     setCell(sheet, row, 4, item.qty)
     const perOccurrence = item.unit_cost * item.qty
-    const itemYears =
-      item.billing === 'once'
-        ? [item.years[0] ?? project.start_year]
-        : item.years
+    const itemYears = item.billing === 'once' ? [item.years[0] ?? project.start_year] : item.years
     years.forEach((year, offset) => {
       const value = itemYears.includes(year) ? perOccurrence : ''
       setCell(sheet, row, yearOffset + offset, value, {
@@ -394,11 +418,15 @@ function writeHardwareSheet(
   for (let col = 1; col < yearOffset; col++) setCell(sheet, footer, col, '', { bg: GRAY })
   years.forEach((year, offset) => {
     setCell(sheet, footer, yearOffset + offset, hardware.per_year[String(year)] ?? 0, {
-      bold: true, bg: GRAY, numFmt: EURO_FMT,
+      bold: true,
+      bg: GRAY,
+      numFmt: EURO_FMT,
     })
   })
   setCell(sheet, footer, totalCol, hardware.grand_total, {
-    bold: true, bg: GRAY, numFmt: EURO_FMT,
+    bold: true,
+    bg: GRAY,
+    numFmt: EURO_FMT,
   })
   setCell(sheet, footer, totalCol + 1, '', { bg: GRAY })
   setCell(sheet, footer, totalCol + 2, '', { bg: GRAY })
@@ -410,13 +438,14 @@ function writeHardwareSheet(
 }
 
 /** Build the workbook and trigger a browser download. */
-export async function downloadBudgetWorkbook(
+/** The budget workbook as an ExcelJS object, for the download and for tests. */
+export async function buildBudgetWorkbook(
   project: Project,
   money: MoneyConfig,
   rates: RateConfig,
   plan: BudgetPlan,
   hardware?: HardwarePlan | null,
-): Promise<void> {
+): Promise<ExcelJS.Workbook> {
   const { Workbook } = await import('exceljs') // lazy: only loaded on export
   const wb = new Workbook()
   writeConfigSheet(wb, project, money, rates)
@@ -427,7 +456,17 @@ export async function downloadBudgetWorkbook(
   if (hardware && hardware.items.length > 0) {
     writeHardwareSheet(wb, project, hardware)
   }
+  return wb
+}
 
+export async function downloadBudgetWorkbook(
+  project: Project,
+  money: MoneyConfig,
+  rates: RateConfig,
+  plan: BudgetPlan,
+  hardware?: HardwarePlan | null,
+): Promise<void> {
+  const wb = await buildBudgetWorkbook(project, money, rates, plan, hardware)
   const buffer = await wb.xlsx.writeBuffer()
   downloadBlob(
     new Blob([buffer], {

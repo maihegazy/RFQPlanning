@@ -55,7 +55,9 @@ def _write_pivot_sheet(workbook, sheet_name: str, pivot: dict, num_format: str):
 
 def build_resource_plan_xlsx(pivots: list[dict]) -> bytes:
     buffer = io.BytesIO()
-    workbook = xlsxwriter.Workbook(buffer, {'in_memory': True})
+    # Feature and role names are user text; a name starting with "=" must stay text
+    # instead of becoming a formula in the recipient's Excel.
+    workbook = xlsxwriter.Workbook(buffer, {'in_memory': True, 'strings_to_formulas': False})
     for pivot in pivots:
         _write_pivot_sheet(workbook, pivot["year"], pivot, '#,##0.0')
     workbook.close()

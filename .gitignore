@@ -19,8 +19,11 @@ dist/
 .idea/
 .DS_Store
 
-# Test artifacts
+# Test and lint artifacts
 .pytest_cache/
+.ruff_cache/
+frontend/.eslintcache
 .coverage
 tsconfig.tsbuildinfo
-frontend/undefined/
+frontend/playwright-report/
+frontend/test-results/

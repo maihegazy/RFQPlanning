@@ -153,7 +153,7 @@ def test_hw_migration_round_trip(tmp_path):
     config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
     try:
         run_migrations(fresh_engine)
-        assert HW_TABLES <= set(inspect(fresh_engine).get_table_names())
+        assert set(inspect(fresh_engine).get_table_names()) >= HW_TABLES
 
         with fresh_engine.begin() as connection:
             config.attributes["connection"] = connection
@@ -165,7 +165,7 @@ def test_hw_migration_round_trip(tmp_path):
             command.upgrade(config, "head")
 
         inspector = inspect(fresh_engine)
-        assert HW_TABLES <= set(inspector.get_table_names())
+        assert set(inspector.get_table_names()) >= HW_TABLES
         for table in sorted(HW_TABLES):
             mapped = {column.name for column in Base.metadata.tables[table].columns}
             assert {column["name"] for column in inspector.get_columns(table)} == mapped
@@ -217,7 +217,7 @@ def test_hw_project_crud(client):
     rollups = client.get("/api/hw/projects").json()
     row = next(p for p in rollups if p["id"] == project_id)
     assert row["asset_count"] == 0
-    assert row["budget_total"] == 2500.0
+    assert row["effective_budget"] == 2500.0
     assert row["remaining"] == 2500.0
 
     assert client.delete(f"/api/hw/projects/{project_id}").status_code == 204
@@ -322,18 +322,18 @@ def test_asset_bulk_replace(client, assets_project):
               purchase_type="Purchase"),
     ]})
     assert resp.status_code == 200, resp.text
-    rows = resp.json()
+    rows = resp.json()["items"]
     assert [row["asset_tag"] for row in rows] == ["B-1", "B-2"]
     assert rows[0]["per_year"] == {"2026": 1200.0, "2027": 1200.0, "2028": 1200.0}
     assert rows[1]["per_year"] == {"2026": 0.0, "2027": 250.0, "2028": 0.0}
-    # The replaced rows are gone, not merged
+    # Rows posted without an id are new; the ones the list no longer names are gone
     assert {row["id"] for row in rows}.isdisjoint({row["id"] for row in before})
     assert len(client.get(f"/api/hw/projects/{assets_project}/assets").json()) == 2
 
     # An empty list clears the register
     resp = client.put(f"/api/hw/projects/{assets_project}/assets", json={"items": []})
     assert resp.status_code == 200
-    assert resp.json() == []
+    assert resp.json()["items"] == []
 
 
 def test_asset_catalog_link(client, assets_project):
@@ -354,7 +354,8 @@ def test_asset_catalog_link(client, assets_project):
     resp = client.post(f"/api/hw/projects/{assets_project}/assets", json=asset(
         name="Dangling", catalog_item_id=987654,
     ))
-    assert resp.status_code == 404
+    # The body names a catalog item that does not exist: a validation error
+    assert resp.status_code == 422
     assert resp.json()["detail"] == "Catalog item not found: 987654"
 
     client.put(f"/api/hw/projects/{assets_project}/assets", json={"items": []})
@@ -380,8 +381,10 @@ def test_license_register(client, licenses_project):
     assert leased["per_year"] == {
         "2025": 1192.89, "2026": 2385.78, "2027": 2385.78, "2028": 1391.71,
     }
-    assert leased["total"] == pytest.approx(sum(leased["per_year"].values()))
-    assert leased["total"] == 7356.16
+    # The total is rounded once from full precision, like the sheet's SUM over
+    # unrounded cells, so it can sit a cent away from adding up the shown cells.
+    assert leased["total"] == 7356.17
+    assert round(sum(leased["per_year"].values()), 2) == 7356.16
 
     resp = client.post(f"/api/hw/projects/{licenses_project}/licenses", json=hw_license(
         license_tag="L-2", name="Planned Compiler", category="Compiler",
@@ -416,7 +419,7 @@ def test_license_bulk_replace(client, licenses_project):
                    purchase_cost=3600.0, depreciation="Leasing"),
     ]})
     assert resp.status_code == 200, resp.text
-    rows = resp.json()
+    rows = resp.json()["items"]
     assert len(rows) == 1
     assert rows[0]["per_year"] == {"2026": 1200.0, "2027": 1200.0, "2028": 1200.0}
 
@@ -462,7 +465,7 @@ def test_adjustments_replace(client, summary_project):
     resp = client.put(f"/api/hw/projects/{summary_project}/adjustments",
                       json={"items": items})
     assert resp.status_code == 200, resp.text
-    assert resp.json() == items
+    assert resp.json()["items"] == items
 
     # Replacing reuses the (year, kind) pairs: the deletes must land first
     resp = client.put(f"/api/hw/projects/{summary_project}/adjustments",
@@ -694,7 +697,8 @@ def test_overall_budget_ignores_the_split_figures(client):
 
     rollup = next(p for p in client.get("/api/hw/projects").json()
                   if p["id"] == project_id)
-    assert rollup["budget_total"] == 9000.0
+    assert rollup["effective_budget"] == 9000.0
+    assert rollup["budget_total"] == 9000.0  # the stored figure, unchanged
 
 
 def test_switching_budget_mode_reinstates_the_split(client):
@@ -971,7 +975,7 @@ def test_overview_aggregates_projects(client, overview_projects):
     assert data["asset_count"] == sum(p["asset_count"] for p in rollups)
     assert data["license_count"] == sum(p["license_count"] for p in rollups)
     assert data["dashboard"]["budget_total"] == pytest.approx(
-        sum(p["budget_total"] for p in rollups))
+        sum(p["effective_budget"] for p in rollups))
 
     by_id = {p["id"]: p for p in data["projects"]}
     assert by_id[first]["asset_count"] == 1

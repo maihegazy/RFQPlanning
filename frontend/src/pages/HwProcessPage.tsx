@@ -30,7 +30,9 @@ function Step({ step, index }: { step: ProcessStep; index: number }) {
         }`}
       >
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <span className="text-xs font-mono text-slate-500">{String(index + 1).padStart(2, '0')}</span>
+          <span className="text-xs font-mono text-slate-500">
+            {String(index + 1).padStart(2, '0')}
+          </span>
           <h3 className="text-sm font-semibold text-slate-100">{step.label}</h3>
           {step.owner && (
             <span className="rounded-full border border-slate-700 bg-slate-800 px-2 py-0.5 text-xs text-slate-300">
@@ -92,9 +94,9 @@ export default function HwProcessPage() {
       </div>
 
       <p className="mb-8 max-w-3xl text-sm text-slate-400">
-        The working document carried this flow as three pasted images on its first sheet. Here
-        each step keeps its owner and its guidance, and the steps that happen in this tool link
-        straight to the screen that performs them.
+        The working document carried this flow as three pasted images on its first sheet. Here each
+        step keeps its owner and its guidance, and the steps that happen in this tool link straight
+        to the screen that performs them.
       </p>
 
       <div className="space-y-8">

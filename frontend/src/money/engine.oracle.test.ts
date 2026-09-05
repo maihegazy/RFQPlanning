@@ -97,6 +97,7 @@ function toProject(fx: Fixture): Project {
     lost_reason: null,
     base_project_id: null,
     is_winning_scenario: false,
+    version: 1,
     created_at: '',
     updated_at: '',
     features,
@@ -116,6 +117,9 @@ function toRates(fx: Fixture): RateConfig {
   return {
     sp_to_hours: fx.rates.sp_to_hours,
     risk_factor_pct: fx.rates.risk_factor_pct,
+    version: 1,
+    hardware_costs_per_year: {},
+    hardware_pass_through: false,
     ticket_story_points: fx.rates.ticket_story_points,
     ticket_quotas: fx.rates.ticket_quotas,
   }
@@ -174,8 +178,15 @@ describe('engine vs original desktop implementation (30 randomized fixtures)', (
         const got = summary[i]
         const exp = fx.expected.cost_profit_summary[i]
         expect(`${got.year}|${got.location}`).toBe(`${exp.year}|${exp.location}`)
-        for (const f of ['man_hours', 'cost', 'selling_price', 'hourly_cost',
-                         'hourly_rate', 'profit', 'profit_pct'] as const) {
+        for (const f of [
+          'man_hours',
+          'cost',
+          'selling_price',
+          'hourly_cost',
+          'hourly_rate',
+          'profit',
+          'profit_pct',
+        ] as const) {
           expectClose(got[f], Number(exp[f]), EXACT, `summary[${i}].${f}`)
         }
       }
@@ -187,8 +198,15 @@ describe('engine vs original desktop implementation (30 randomized fixtures)', (
         const got = overall[i]
         const exp = fx.expected.cost_profit_overall[i]
         expect(got.year).toBe(exp.year)
-        for (const f of ['man_hours', 'cost', 'selling_price', 'hourly_cost',
-                         'hourly_rate', 'profit', 'profit_pct'] as const) {
+        for (const f of [
+          'man_hours',
+          'cost',
+          'selling_price',
+          'hourly_cost',
+          'hourly_rate',
+          'profit',
+          'profit_pct',
+        ] as const) {
           expectClose(got[f], Number(exp[f]), EXACT, `overall[${i}].${f}`)
         }
       }

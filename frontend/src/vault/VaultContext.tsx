@@ -13,10 +13,10 @@ import {
   buildRecoveryFile,
   createVault,
   decryptJson,
+  dekVerifier,
   encryptJson,
+  keyFromRaw,
   parseRecoveryFile,
-  unlockWithPassphrase,
-  unlockWithRecoveryKey,
   unwrapDekRaw,
   unwrapDekRawWithRecovery,
   rewrapDek,
@@ -33,11 +33,21 @@ interface VaultContextValue {
   unlockWithFile: (fileContent: string) => Promise<void>
   /** Re-wrap the data key under a new passphrase. Proof of ownership is either
    *  the current passphrase or the recovery file — data is never re-encrypted. */
-  changePassphrase: (proof: { passphrase: string } | { recoveryFile: string },
-                     newPassphrase: string) => Promise<void>
+  changePassphrase: (
+    proof: { passphrase: string } | { recoveryFile: string },
+    newPassphrase: string,
+  ) => Promise<void>
   lock: () => void
   encrypt: (obj: unknown) => Promise<WrappedKey>
   decrypt: <T>(blob: WrappedKey) => Promise<T>
+  /**
+   * The setup/unlock dialog is rendered by `VaultDialogHost` at the app root,
+   * so the prompt that opened it can disappear (a section unlocking) without
+   * taking the dialog, and its one-time recovery step, down with it.
+   */
+  dialogOpen: boolean
+  openDialog: () => void
+  closeDialog: () => void
 }
 
 const VaultContext = createContext<VaultContextValue | null>(null)
@@ -46,6 +56,9 @@ export function VaultProvider({ children }: { children: ReactNode }) {
   const [info, setInfo] = useState<VaultInfo | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [dek, setDek] = useState<CryptoKey | null>(null)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const openDialog = useCallback(() => setDialogOpen(true), [])
+  const closeDialog = useCallback(() => setDialogOpen(false), [])
 
   useEffect(() => {
     api
@@ -65,50 +78,76 @@ export function VaultProvider({ children }: { children: ReactNode }) {
 
   const setup = useCallback(async (passphrase: string) => {
     const vault = await createVault(passphrase)
-    await api.createVault({
+    // The POST answers with the stored record, so no second request stands
+    // between creating the vault and showing the one-time recovery key.
+    const created = await api.createVault({
       kdf_salt: vault.kdfSalt,
       kdf_iterations: vault.kdfIterations,
       wrapped_dek_passphrase_iv: vault.wrappedDekPassphrase.iv,
       wrapped_dek_passphrase: vault.wrappedDekPassphrase.ciphertext,
       wrapped_dek_recovery_iv: vault.wrappedDekRecovery.iv,
       wrapped_dek_recovery: vault.wrappedDekRecovery.ciphertext,
+      dek_verifier: vault.dekVerifier,
     })
-    setInfo(await api.getVault())
+    setInfo(created)
     setDek(vault.dek)
     return buildRecoveryFile(vault.recoveryKeyB64)
+  }, [])
+
+  /**
+   * A vault from before proofs of key existed gets its proof on the first
+   * unlock; until then a passphrase change only needs the wrapped key. Best
+   * effort: an unlock never fails because the registration did.
+   */
+  const registerVerifier = useCallback(async (current: VaultInfo, dekRaw: Uint8Array) => {
+    if (current.has_verifier) return
+    try {
+      const updated = await api.registerVaultVerifier({
+        current_wrapped_dek_passphrase_iv: current.wrapped_dek_passphrase_iv,
+        current_wrapped_dek_passphrase: current.wrapped_dek_passphrase,
+        dek_verifier: await dekVerifier(dekRaw),
+      })
+      setInfo(updated)
+    } catch {
+      /* the next unlock tries again */
+    }
   }, [])
 
   const unlock = useCallback(
     async (passphrase: string) => {
       if (!info?.exists) throw new Error('Vault not set up')
+      let dekRaw: Uint8Array
       try {
-        const key = await unlockWithPassphrase(passphrase, info.kdf_salt, info.kdf_iterations, {
+        dekRaw = await unwrapDekRaw(passphrase, info.kdf_salt, info.kdf_iterations, {
           iv: info.wrapped_dek_passphrase_iv,
           ciphertext: info.wrapped_dek_passphrase,
         })
-        setDek(key)
       } catch {
         throw new Error('Wrong passphrase')
       }
+      setDek(await keyFromRaw(dekRaw))
+      await registerVerifier(info, dekRaw)
     },
-    [info],
+    [info, registerVerifier],
   )
 
   const unlockWithFile = useCallback(
     async (fileContent: string) => {
       if (!info?.exists) throw new Error('Vault not set up')
       const recoveryKey = parseRecoveryFile(fileContent)
+      let dekRaw: Uint8Array
       try {
-        const key = await unlockWithRecoveryKey(recoveryKey, {
+        dekRaw = await unwrapDekRawWithRecovery(recoveryKey, {
           iv: info.wrapped_dek_recovery_iv,
           ciphertext: info.wrapped_dek_recovery,
         })
-        setDek(key)
       } catch {
         throw new Error('Recovery key does not match this vault')
       }
+      setDek(await keyFromRaw(dekRaw))
+      await registerVerifier(info, dekRaw)
     },
-    [info],
+    [info, registerVerifier],
   )
 
   const changePassphrase = useCallback(
@@ -136,16 +175,20 @@ export function VaultProvider({ children }: { children: ReactNode }) {
       }
 
       const rewrapped = await rewrapDek(dekRaw, newPassphrase)
-      await api.changeVaultPassphrase({
+      // The proof of key and the wrapped key this change was built from go
+      // along: the server refuses a blind request and a stale one.
+      const updated = await api.changeVaultPassphrase({
         kdf_salt: rewrapped.kdfSalt,
         kdf_iterations: rewrapped.kdfIterations,
         wrapped_dek_passphrase_iv: rewrapped.wrapped.iv,
         wrapped_dek_passphrase: rewrapped.wrapped.ciphertext,
+        current_wrapped_dek_passphrase_iv: info.wrapped_dek_passphrase_iv,
+        current_wrapped_dek_passphrase: info.wrapped_dek_passphrase,
+        dek_verifier: await dekVerifier(dekRaw),
       })
-      setInfo(await api.getVault())
+      setInfo(updated)
       // Keep the session open under the new passphrase
-      setDek(await unlockWithPassphrase(newPassphrase, rewrapped.kdfSalt,
-        rewrapped.kdfIterations, rewrapped.wrapped))
+      setDek(await keyFromRaw(dekRaw))
     },
     [info],
   )
@@ -169,8 +212,32 @@ export function VaultProvider({ children }: { children: ReactNode }) {
   )
 
   const value = useMemo(
-    () => ({ status, setup, unlock, unlockWithFile, changePassphrase, lock, encrypt, decrypt }),
-    [status, setup, unlock, unlockWithFile, changePassphrase, lock, encrypt, decrypt],
+    () => ({
+      status,
+      setup,
+      unlock,
+      unlockWithFile,
+      changePassphrase,
+      lock,
+      encrypt,
+      decrypt,
+      dialogOpen,
+      openDialog,
+      closeDialog,
+    }),
+    [
+      status,
+      setup,
+      unlock,
+      unlockWithFile,
+      changePassphrase,
+      lock,
+      encrypt,
+      decrypt,
+      dialogOpen,
+      openDialog,
+      closeDialog,
+    ],
   )
 
   return <VaultContext.Provider value={value}>{children}</VaultContext.Provider>

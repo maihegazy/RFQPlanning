@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Download, Pencil, Plus, Search, TriangleAlert, Upload } from 'lucide-react'
-import { api } from '../api'
+import { api, isConflict } from '../api'
 import type {
   HardwareBilling,
   HardwareCatalogItem,
   HwAdjustment,
   HwAsset,
   HwAssetInput,
+  HwImportResult,
   HwLicense,
   HwLicenseInput,
   HwMeta,
@@ -18,18 +19,45 @@ import type {
   HwSummary,
   HwYearRow,
 } from '../types'
-import { yearSpan } from '../hardware/depreciation'
+import { FIRST_YEAR, LAST_YEAR, yearSpan } from '../hardware/depreciation'
+import {
+  BLANK_ASSET,
+  BLANK_LICENSE,
+  describeRows,
+  isBlankAsset,
+  isBlankLicense,
+  planSave,
+} from '../hardware/registers'
 import { formatEuro, formatNumber } from '../utils'
-import { Button, Card, EmptyState, ErrorBanner, Input, Label, Modal, Spinner } from '../components/ui'
+import {
+  Button,
+  Card,
+  EmptyState,
+  ErrorBanner,
+  Input,
+  Label,
+  Modal,
+  KpiTile,
+  LinkButton,
+  Spinner,
+} from '../components/ui'
+import { ConflictBanner } from '../components/ConflictBanner'
 import HwAssetTable from '../components/HwAssetTable'
 import HwLicenseTable from '../components/HwLicenseTable'
 import HwImportDialog from '../components/HwImportDialog'
-import HwBudgetFields, {
+import HwBudgetFields from '../components/HwBudgetFields'
+import PlanningWindowFields from '../components/PlanningWindowFields'
+import {
+  windowFromProject,
+  windowPayload,
+  type PlanningWindowDraft,
+} from '../hardware/planningWindow'
+import {
   budgetBreakdown,
   budgetPayload,
   draftFromProject,
   type BudgetDraft,
-} from '../components/HwBudgetFields'
+} from '../hardware/budget'
 
 type TabKey = 'summary' | 'assets' | 'licenses'
 type RegisterKey = 'assets' | 'licenses'
@@ -40,55 +68,6 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'assets', label: 'Assets' },
   { key: 'licenses', label: 'Licenses' },
 ]
-
-/** A fresh asset line: nothing bought, nothing known yet. */
-const BLANK_ASSET: HwAssetInput = {
-  asset_tag: '',
-  company: '',
-  name: '',
-  serial: '',
-  model: '',
-  category: '',
-  status: '',
-  supplier: '',
-  purchase_date: null,
-  purchase_cost: 0,
-  order_number: '',
-  eol_date: null,
-  assigned_employee: '',
-  sw_license: '',
-  purchased_by: '',
-  purchase_type: 'Not Purchased',
-  catalog_item_id: null,
-}
-
-/** A fresh license line: one seat, nothing bought, nothing known yet. */
-const BLANK_LICENSE: HwLicenseInput = {
-  license_tag: '',
-  company: '',
-  name: '',
-  product_key: '',
-  expiration_date: null,
-  licensed_to_email: '',
-  category: '',
-  supplier: '',
-  manufacturer: '',
-  quantity: 1,
-  purchase_date: null,
-  termination_date: null,
-  depreciation: 'Not Purchased',
-  maintained: false,
-  purchase_cost: 0,
-  purchase_order_number: '',
-  notes: '',
-  catalog_item_id: null,
-}
-
-/** `Button` renders a <button>; the export has to be a real link so the browser
- *  performs the download itself instead of buffering the workbook through fetch.
- *  Same classes as the secondary button variant. */
-const LINK_BUTTON =
-  'inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3.5 py-2 text-sm font-medium text-slate-200 transition-colors hover:bg-slate-700'
 
 /** A catalog item priced per year is the working document's Leasing; a one-off
  *  price is a Purchase. Dates stay empty — only the buyer knows them. */
@@ -119,14 +98,15 @@ function licenseFromCatalog(item: HardwareCatalogItem): HwLicenseInput {
 }
 
 /** The register is edited and saved as `…Input` rows; the server-computed
- *  fields are re-read from the save response. */
+ *  fields are re-read from the save response. The id stays: a save keeps the
+ *  stored row for it instead of recreating every row. */
 function toAssetInput(asset: HwAsset): HwAssetInput {
-  const { id, hw_project_id, per_year, total, ...input } = asset
+  const { hw_project_id, per_year, total, uncounted_reason, ...input } = asset
   return input
 }
 
 function toLicenseInput(license: HwLicense): HwLicenseInput {
-  const { id, hw_project_id, per_year, total, ...input } = license
+  const { hw_project_id, per_year, total, uncounted_reason, ...input } = license
   return input
 }
 
@@ -155,37 +135,22 @@ function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? '' : 's'}`
 }
 
-function Money({ value, muted = false }: { value: number; muted?: boolean }) {
-  if (value === 0) return <span className="text-slate-600">—</span>
-  return (
-    <span className={muted ? 'text-slate-400' : 'text-slate-200'}>{formatEuro(value)}</span>
-  )
+/** "Imported 3 assets and 2 licenses, replacing 5 assets." */
+function describeImport(result: HwImportResult): string {
+  const replaced = [
+    result.replaced_assets > 0 ? plural(result.replaced_assets, 'asset') : '',
+    result.replaced_licenses > 0 ? plural(result.replaced_licenses, 'license') : '',
+  ].filter((part) => part !== '')
+  const base = `Imported ${plural(result.created_assets, 'asset')} and ${plural(
+    result.created_licenses,
+    'license',
+  )}`
+  return replaced.length > 0 ? `${base}, replacing ${replaced.join(' and ')}.` : `${base}.`
 }
 
-function KpiTile({
-  label,
-  value,
-  hint,
-  tone = 'default',
-}: {
-  label: string
-  value: string
-  hint: string
-  tone?: 'default' | 'warning'
-}) {
-  return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-      <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
-      <p
-        className={`mt-1 text-xl font-bold ${
-          tone === 'warning' ? 'text-rose-300' : 'text-slate-100'
-        }`}
-      >
-        {value}
-      </p>
-      <p className="mt-1 text-xs text-slate-500">{hint}</p>
-    </div>
-  )
+function Money({ value, muted = false }: { value: number; muted?: boolean }) {
+  if (value === 0) return <span className="text-slate-600">—</span>
+  return <span className={muted ? 'text-slate-400' : 'text-slate-200'}>{formatEuro(value)}</span>
 }
 
 function UtilisationBar({
@@ -202,8 +167,8 @@ function UtilisationBar({
   if (budget <= 0) {
     return (
       <div className="rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm text-slate-400">
-        No budget set for this project yet — use “Edit project” to add the assets and
-        licenses budgets, and this bar will track them.
+        No budget set for this project yet — use “Edit project” to add the assets and licenses
+        budgets, and this bar will track them.
       </div>
     )
   }
@@ -281,15 +246,7 @@ function RenewalRisk({ risk }: { risk: HwRenewalRisk }) {
   )
 }
 
-function PivotCard({
-  title,
-  pivot,
-  empty,
-}: {
-  title: string
-  pivot: HwPivot
-  empty: string
-}) {
+function PivotCard({ title, pivot, empty }: { title: string; pivot: HwPivot; empty: string }) {
   const columnTotal = (status: string) =>
     pivot.rows.reduce((sum, row) => sum + (row.counts[status] ?? 0), 0)
   const grandTotal = pivot.rows.reduce((sum, row) => sum + row.total, 0)
@@ -400,10 +357,7 @@ function SummaryYearTable({
             <th scope="col" className="py-2 pr-3 text-right">
               Planned licenses
             </th>
-            <th
-              scope="col"
-              className="border-l border-slate-800 py-2 pl-3 pr-3 text-right"
-            >
+            <th scope="col" className="border-l border-slate-800 py-2 pl-3 pr-3 text-right">
               Special cases assets
             </th>
             <th scope="col" className="py-2 text-right">
@@ -500,11 +454,7 @@ function SummaryYearTable({
   )
 }
 
-function ExpiringList({
-  rows,
-}: {
-  rows: HwSummary['expiring']
-}) {
+function ExpiringList({ rows }: { rows: HwSummary['expiring'] }) {
   if (rows.length === 0) {
     return <EmptyState>No license expires within the next 90 days.</EmptyState>
   }
@@ -584,9 +534,9 @@ function CatalogPickerModal({
     <Modal title="Add from hardware catalog" size="lg" onClose={onClose}>
       <div className="space-y-4">
         <p className="text-sm text-slate-400">
-          Picking an item appends a prefilled row to the <strong>{registerLabel}</strong>{' '}
-          register — name, supplier and cost come from the catalog, the dates are yours to
-          fill in. Nothing is written until you save the register.
+          Picking an item appends a prefilled row to the <strong>{registerLabel}</strong> register —
+          name, supplier and cost come from the catalog, the dates are yours to fill in. Nothing is
+          written until you save the register.
         </p>
 
         <div className="relative">
@@ -613,10 +563,7 @@ function CatalogPickerModal({
         ) : (
           <ul className="max-h-96 divide-y divide-slate-800 overflow-y-auto rounded-lg border border-slate-800">
             {filtered.map((item) => (
-              <li
-                key={item.id}
-                className="flex items-center justify-between gap-4 px-3 py-2.5"
-              >
+              <li key={item.id} className="flex items-center justify-between gap-4 px-3 py-2.5">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-slate-200">{item.name}</p>
                   <p className="truncate text-xs text-slate-500">
@@ -670,6 +617,7 @@ function EditProjectModal({
     portal_reference: project.portal_reference,
   })
   const [budget, setBudget] = useState<BudgetDraft>(() => draftFromProject(project))
+  const [window, setWindow] = useState<PlanningWindowDraft>(() => windowFromProject(project))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -683,6 +631,7 @@ function EditProjectModal({
         ...form,
         name: form.name.trim(),
         ...budgetPayload(budget),
+        ...windowPayload(window),
       })
       onSaved(updated)
       onClose()
@@ -711,7 +660,9 @@ function EditProjectModal({
             <Label>Company</Label>
             <Input
               aria-label="Company"
-              value={form.company} onChange={(e) => patch({ company: e.target.value })} />
+              value={form.company}
+              onChange={(e) => patch({ company: e.target.value })}
+            />
           </div>
         </div>
 
@@ -728,6 +679,8 @@ function EditProjectModal({
         </div>
 
         <HwBudgetFields draft={budget} onChange={setBudget} />
+
+        <PlanningWindowFields draft={window} onChange={setWindow} />
 
         <div>
           <Label>Portal reference</Label>
@@ -825,6 +778,8 @@ export default function HwProjectPage() {
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  /* A 409: someone else saved first. The edits stay on screen until reloaded. */
+  const [conflict, setConflict] = useState('')
   const [saving, setSaving] = useState<'assets' | 'licenses' | 'adjustments' | null>(null)
   /* A save confirmation belongs to the tab it was earned on, so switching tabs
    * never shows "Saved 3 assets." next to the licenses grid. */
@@ -948,35 +903,67 @@ export default function HwProjectPage() {
     applySummary(next, keepAdjustmentEdits)
   }
 
+  /** Every save carries the version it was built from and learns the new one. */
+  const version = project?.version
+  const bumpVersion = (next: number) =>
+    setProject((prev) => (prev === null ? prev : { ...prev, version: next }))
+
+  const failSave = (e: unknown) => {
+    if (isConflict(e)) setConflict(e.message)
+    else setError((e as Error).message)
+  }
+
   const saveAssets = async () => {
+    const plan = planSave(assets, isBlankAsset)
+    if (plan.unnamed.length > 0) {
+      setError(
+        `Every asset needs a name before the register can be saved: ${describeRows(
+          plan.unnamed,
+        )} of the assets register ${plan.unnamed.length === 1 ? 'has' : 'have'} none.`,
+      )
+      return
+    }
     setSaving('assets')
     setError('')
+    setConflict('')
     try {
-      const saved = await api.replaceHwAssets(id, assets)
-      const rows = saved.map(toAssetInput)
+      const saved = await api.replaceHwAssets(id, plan.rows, version)
+      bumpVersion(saved.version)
+      const rows = saved.items.map(toAssetInput)
       setAssets(rows)
       setAssetBaseline(JSON.stringify(rows))
       await refreshSummary(adjustmentsDirty)
       setNotice({ scope: 'assets', text: `Saved ${plural(rows.length, 'asset')}.` })
     } catch (e) {
-      setError((e as Error).message)
+      failSave(e)
     } finally {
       setSaving(null)
     }
   }
 
   const saveLicenses = async () => {
+    const plan = planSave(licenses, isBlankLicense)
+    if (plan.unnamed.length > 0) {
+      setError(
+        `Every license needs a name before the register can be saved: ${describeRows(
+          plan.unnamed,
+        )} of the licenses register ${plan.unnamed.length === 1 ? 'has' : 'have'} none.`,
+      )
+      return
+    }
     setSaving('licenses')
     setError('')
+    setConflict('')
     try {
-      const saved = await api.replaceHwLicenses(id, licenses)
-      const rows = saved.map(toLicenseInput)
+      const saved = await api.replaceHwLicenses(id, plan.rows, version)
+      bumpVersion(saved.version)
+      const rows = saved.items.map(toLicenseInput)
       setLicenses(rows)
       setLicenseBaseline(JSON.stringify(rows))
       await refreshSummary(adjustmentsDirty)
       setNotice({ scope: 'licenses', text: `Saved ${plural(rows.length, 'license')}.` })
     } catch (e) {
-      setError((e as Error).message)
+      failSave(e)
     } finally {
       setSaving(null)
     }
@@ -985,20 +972,23 @@ export default function HwProjectPage() {
   const saveAdjustments = async () => {
     setSaving('adjustments')
     setError('')
+    setConflict('')
     try {
-      await api.replaceHwAdjustments(id, adjustmentList(adjustments))
+      const saved = await api.replaceHwAdjustments(id, adjustmentList(adjustments), version)
+      bumpVersion(saved.version)
       // The server folds the adjustments into the actual columns, so the whole
       // summary has to come back rather than being patched in place.
       await refreshSummary(false)
       setNotice({ scope: 'summary', text: 'Special cases saved.' })
     } catch (e) {
-      setError((e as Error).message)
+      failSave(e)
     } finally {
       setSaving(null)
     }
   }
 
-  const noticeFor = (scope: TabKey) => (notice !== null && notice.scope === scope ? notice.text : '')
+  const noticeFor = (scope: TabKey) =>
+    notice !== null && notice.scope === scope ? notice.text : ''
 
   const discardAssets = () => {
     setNotice(null)
@@ -1109,10 +1099,10 @@ export default function HwProjectPage() {
               </span>
             </Button>
           </span>
-          <a href={api.hwExportXlsxUrl(id)} download className={LINK_BUTTON}>
+          <LinkButton href={api.hwExportXlsxUrl(id)} download>
             <Download className="h-4 w-4" />
             Export Excel
-          </a>
+          </LinkButton>
           <Button onClick={() => setDialog('edit')}>
             <span className="flex items-center gap-1.5">
               <Pencil className="h-4 w-4" />
@@ -1125,6 +1115,17 @@ export default function HwProjectPage() {
       {error !== '' && (
         <div className="mb-4">
           <ErrorBanner message={error} />
+        </div>
+      )}
+      {conflict !== '' && (
+        <div className="mb-4">
+          <ConflictBanner
+            message={conflict}
+            onReload={() => {
+              setConflict('')
+              load()
+            }}
+          />
         </div>
       )}
 
@@ -1185,6 +1186,23 @@ export default function HwProjectPage() {
 
       {tab === 'summary' && (
         <div className="space-y-6">
+          {noticeFor('summary') !== '' && !adjustmentsDirty && (
+            <div className="rounded-lg border border-emerald-800 bg-emerald-950/50 px-4 py-2 text-sm text-emerald-300">
+              {noticeFor('summary')}
+            </div>
+          )}
+          {summary.uncounted_rows > 0 && (
+            <div className="flex items-start gap-2 rounded-lg border border-rose-900 bg-rose-950/40 px-4 py-3 text-sm text-rose-200">
+              <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+              <p>
+                {plural(summary.uncounted_rows, 'register row')}{' '}
+                {summary.uncounted_rows === 1 ? 'counts' : 'count'} towards no year — a missing
+                purchase or end date, an unknown purchase type, or a date outside {FIRST_YEAR}–
+                {LAST_YEAR}. Such rows carry a <span className="font-medium">not counted</span> mark
+                in the registers; fix them there so the totals above include them.
+              </p>
+            </div>
+          )}
           <div className="grid gap-4 sm:grid-cols-2">
             <button
               onClick={() => selectTab('assets')}
@@ -1216,10 +1234,6 @@ export default function HwProjectPage() {
                   <span className="self-center rounded-full border border-amber-800 bg-amber-950 px-2.5 py-0.5 text-xs font-medium text-amber-300">
                     Unsaved changes
                   </span>
-                ) : noticeFor('summary') !== '' ? (
-                  <span className="self-center text-xs text-emerald-300">
-                    {noticeFor('summary')}
-                  </span>
                 ) : null}
                 {adjustmentsDirty && (
                   <Button
@@ -1246,9 +1260,8 @@ export default function HwProjectPage() {
               onAdjust={setAdjustment}
             />
             <p className="mt-3 max-w-4xl text-xs text-slate-500">
-              Special cases are the working document's manual budget deltas. The actual
-              columns already include the saved values; a change here only reaches them once
-              it is saved.
+              Special cases are the working document's manual budget deltas. The actual columns
+              already include the saved values; a change here only reaches them once it is saved.
             </p>
           </Card>
 
@@ -1336,8 +1349,8 @@ export default function HwProjectPage() {
         <HwImportDialog
           projectId={id}
           onClose={() => setDialog(null)}
-          onImported={() => {
-            setNotice(null)
+          onImported={(result) => {
+            setNotice({ scope: 'summary', text: describeImport(result) })
             load()
           }}
         />
