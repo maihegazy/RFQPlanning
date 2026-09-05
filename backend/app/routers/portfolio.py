@@ -20,12 +20,19 @@ router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 def capacity(statuses: str | None = None, db: Session = Depends(get_db)):
     """Aggregate FTE demand per month and location across projects.
 
-    statuses: optional comma-separated filter (e.g. "draft,quoted,won").
+    statuses: optional comma-separated filter (e.g. "draft,quoted,won"). Omitting
+    the parameter means every status; sending it empty means no status at all,
+    so a page whose user deselected every filter shows nothing rather than all.
     Scenario children are excluded — only base projects count.
     """
     query = db.query(models.Project).filter(models.Project.base_project_id.is_(None))
-    if statuses:
+    if statuses is not None:
         wanted = [s.strip() for s in statuses.split(",") if s.strip()]
+        if not wanted:
+            return {
+                "months": [], "locations": LOCATIONS, "cells": {},
+                "totals_by_month": {}, "project_count": 0,
+            }
         query = query.filter(models.Project.status.in_(wanted))
     projects = query.all()
 

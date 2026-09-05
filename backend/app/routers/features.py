@@ -183,12 +183,18 @@ def update_resource_grid(project_id: int, data: schemas.ResourceGridUpdate,
             db.delete(alloc)
         db.flush()
 
-        if "fixed" in compressed:
+        if "fixed" in compressed and compressed["fixed"] <= 2.0:
             role.ftes = compressed["fixed"]
             role.use_advanced_allocation = False
         else:
+            # A uniform series above the fixed-FTE cap becomes one variable period
+            # spanning the project, the same shape the role editor would require.
+            periods = compressed.get("periods") or [
+                (months[0], months[-1], compressed["fixed"])
+            ]
+            role.ftes = 0.0
             role.use_advanced_allocation = True
-            for start_month, end_month, fte in compressed["periods"]:
+            for start_month, end_month, fte in periods:
                 db.add(models.AllocationPeriod(
                     role_id=role.id,
                     start_month=start_month,

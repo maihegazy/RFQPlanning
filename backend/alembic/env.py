@@ -5,12 +5,17 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+from app import models  # noqa: F401  (registers every table on Base.metadata)
 from app.config import DATABASE_URL
 from app.database import Base
 
 config = context.config
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+# The application runs migrations at startup on a connection it supplies. Loading
+# alembic.ini's logging section there would silence uvicorn and every application
+# logger (fileConfig disables existing loggers and forces the root level to
+# WARNING), so the file's logging setup only applies when Alembic runs from the CLI.
+if config.config_file_name is not None and config.attributes.get("connection") is None:
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 

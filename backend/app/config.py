@@ -52,6 +52,16 @@ HW_BUDGET_MODES = ["split", "overall"]
 # the actual contract length.
 HW_LEASING_MONTHS = 36
 
+# Dates outside this window are treated as typos rather than data: they neither
+# widen a register's year span nor count towards any year, and the importer
+# refuses to read a bare number in a date column as a year 1905 serial.
+DATE_WINDOW_YEARS = (1990, 2100)
+
+# Upper bounds that keep a typo or an overflow probe out of the database
+# (PostgreSQL's int4 stops at 2,147,483,647; money past a trillion is never real).
+MAX_MONEY = 1_000_000_000_000.0
+MAX_QUANTITY = 1_000_000
+
 # Default rate-configuration values
 DEFAULT_SP_TO_HOURS = 4.0
 DEFAULT_HW_COST_PER_HOUR = 0.0

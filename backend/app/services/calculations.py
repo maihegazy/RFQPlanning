@@ -5,8 +5,50 @@ exclusively in the browser against end-to-end encrypted money data — see
 frontend/src/money/engine.ts, which mirrors the same row/pivot structure.
 """
 
+import json
+
 from .. import models
 from .date_utils import get_month_list
+
+
+def hardware_item_years(item: models.HardwareItem) -> list[int]:
+    """The project years a hardware row applies to, from its JSON column."""
+    try:
+        years = json.loads(item.years_json or "[]")
+    except ValueError:
+        return []
+    return sorted({int(year) for year in years})
+
+
+def timeline_conflicts(project: models.Project, start: tuple[int, int],
+                       end: tuple[int, int]) -> list[str]:
+    """Rows that would fall outside a timeline running from `start` to `end`.
+
+    Both bounds are (year, month). Variable allocation periods and hardware years
+    are anchored to calendar time, so a timeline that no longer covers them would
+    leave data the reports cannot place; the caller decides whether that is an
+    error (a timeline change) or a validation finding (existing data).
+    """
+    first = f"{start[0]:04d}-{start[1]:02d}"
+    last = f"{end[0]:04d}-{end[1]:02d}"
+    conflicts: list[str] = []
+    for feature in project.features:
+        for role in feature.roles:
+            if not role.use_advanced_allocation:
+                continue
+            for period in role.allocations:
+                if period.start_month < first or period.end_month > last:
+                    conflicts.append(
+                        f"{feature.name} / {role.name}: period "
+                        f"{period.start_month} to {period.end_month}"
+                    )
+    for item in project.hardware_items:
+        outside = [y for y in hardware_item_years(item) if not start[0] <= y <= end[0]]
+        if outside:
+            conflicts.append(
+                f"hardware item {item.name}: {', '.join(str(y) for y in outside)}"
+            )
+    return conflicts
 
 
 def get_ftes_for_month(role: models.Role, month: str) -> float:
@@ -179,10 +221,6 @@ def validate_project(project: models.Project) -> list[str]:
                 for k, alloc in enumerate(role.allocations):
                     if alloc.ftes < 0:
                         errors.append(f"{role_prefix}, Period {k + 1}: FTEs cannot be negative")
-                    if alloc.ftes > 2.0:
-                        errors.append(
-                            f"{role_prefix}, Period {k + 1}: FTEs seems unusually high (>2.0)"
-                        )
                     if alloc.start_month > alloc.end_month:
                         errors.append(
                             f"{role_prefix}, Period {k + 1}: Start month must be before "
@@ -212,4 +250,11 @@ def validate_project(project: models.Project) -> list[str]:
                 f"Ticket quotas for {year} sum to {total:g}% — "
                 "the total per year cannot exceed 100%"
             )
+
+    for conflict in timeline_conflicts(
+        project,
+        (project.start_year, project.start_month),
+        (project.end_year, project.end_month),
+    ):
+        errors.append(f"Outside the project timeline: {conflict}")
     return errors

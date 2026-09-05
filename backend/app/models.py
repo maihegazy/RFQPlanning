@@ -12,9 +12,10 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    event,
     false,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
 from .config import (
     DEFAULT_HW_COST_PER_HOUR,
@@ -438,3 +439,59 @@ class HwBudgetAdjustment(Base):
     note: Mapped[str] = mapped_column(String(1000), default="")
 
     hw_project: Mapped[HwProject] = relationship(back_populates="adjustments")
+
+
+# ---------------------------------------------------------------------------
+# A project's `updated_at` moves when anything inside it changes
+# ---------------------------------------------------------------------------
+
+# Child model -> (foreign-key attribute, parent model). Walking this chain from any
+# row reaches the Project or HwProject that owns it.
+_OWNER: dict[type, tuple[str, type]] = {
+    Feature: ("project_id", Project),
+    Role: ("feature_id", Feature),
+    AllocationPeriod: ("role_id", Role),
+    HourlyRate: ("project_id", Project),
+    CostRate: ("project_id", Project),
+    TicketConfig: ("project_id", Project),
+    TicketQuota: ("project_id", Project),
+    HardwareItem: ("project_id", Project),
+    HwAsset: ("hw_project_id", HwProject),
+    HwLicense: ("hw_project_id", HwProject),
+    HwBudgetAdjustment: ("hw_project_id", HwProject),
+}
+
+
+def _owner_of(session: Session, obj: object) -> Project | HwProject | None:
+    link = _OWNER.get(type(obj))
+    current = obj
+    while link is not None:
+        fk_attr, parent_model = link
+        parent_id = getattr(current, fk_attr, None)
+        if parent_id is None:
+            return None
+        current = session.get(parent_model, parent_id)
+        if current is None:
+            return None
+        link = _OWNER.get(type(current))
+    return current if isinstance(current, Project | HwProject) else None
+
+
+@event.listens_for(Session, "before_flush")
+def touch_owner_timestamps(session: Session, _flush_context, _instances) -> None:
+    """Bump the owning project's `updated_at` for every child row written.
+
+    `onupdate` only fires for the project's own columns, so without this the
+    "recently updated" order and the "updated 3 days ago" label ignored every
+    feature, role, allocation, rate, blob and hardware change.
+    """
+    now = datetime.utcnow()
+    touched: set[int] = set()
+    for obj in list(session.new) + list(session.dirty) + list(session.deleted):
+        if obj in session.dirty and not session.is_modified(obj):
+            continue
+        owner = _owner_of(session, obj)
+        if owner is None or owner in session.deleted or id(owner) in touched:
+            continue
+        owner.updated_at = now
+        touched.add(id(owner))

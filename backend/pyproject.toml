@@ -18,7 +18,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["app"]
+known-first-party = ["app", "test_hw_management"]
 # The migrations directory is also called `alembic`; the import is the library.
 known-third-party = ["alembic"]
 

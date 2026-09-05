@@ -14,6 +14,8 @@ from sqlalchemy.orm import Session
 
 from .. import models, schemas
 from ..database import get_db
+from ..services.calculations import hardware_item_years
+from ..services.http import attachment_disposition
 from .projects import get_project_or_404
 
 router = APIRouter(prefix="/api", tags=["hardware"])
@@ -28,11 +30,7 @@ XLSX_MEDIA_TYPE = (
 # ---------------------------------------------------------------------------
 
 def item_years(item: models.HardwareItem) -> list[int]:
-    try:
-        years = json.loads(item.years_json or "[]")
-    except ValueError:
-        years = []
-    return sorted({int(y) for y in years})
+    return hardware_item_years(item)
 
 
 def item_total(item: models.HardwareItem) -> float:
@@ -86,14 +84,25 @@ def _year_costs(item: models.HardwareItem, project: models.Project) -> dict[int,
 def build_plan(project: models.Project) -> dict:
     items = [serialize_item(i) for i in project.hardware_items]
     per_year: dict[int, float] = {}
+    warnings: list[str] = []
     for item in project.hardware_items:
         for year, cost in _year_costs(item, project).items():
-            per_year[year] = round(per_year.get(year, 0.0) + cost, 2)
+            if project.start_year <= year <= project.end_year:
+                per_year[year] = round(per_year.get(year, 0.0) + cost, 2)
+            else:
+                # Only possible for rows written before timeline changes were
+                # validated; the year columns cannot place them, so say so.
+                warnings.append(
+                    f"{item.name} is planned for {year}, outside the project years "
+                    f"{project.start_year}-{project.end_year}, and is not shown in a "
+                    "year column"
+                )
     grand_total = round(sum(i["total"] for i in items), 2)
     return {
         "items": items,
         "per_year": dict(sorted(per_year.items())),
         "grand_total": grand_total,
+        "warnings": warnings,
     }
 
 
@@ -238,7 +247,8 @@ def hardware_plan_xlsx(project_id: int, db: Session = Depends(get_db)):
     years = list(range(project.start_year, project.end_year + 1))
 
     buffer = io.BytesIO()
-    workbook = xlsxwriter.Workbook(buffer, {"in_memory": True})
+    # Item and supplier names are user text: "=..." must stay text, not a formula.
+    workbook = xlsxwriter.Workbook(buffer, {"in_memory": True, "strings_to_formulas": False})
     sheet = workbook.add_worksheet("Hardware Plan")
 
     header_fmt = workbook.add_format({
@@ -298,9 +308,12 @@ def hardware_plan_xlsx(project_id: int, db: Session = Depends(get_db)):
         sheet.set_column(idx, idx, width)
 
     workbook.close()
-    filename = f"{project.name} - Hardware Plan.xlsx"
     return Response(
         content=buffer.getvalue(),
         media_type=XLSX_MEDIA_TYPE,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": attachment_disposition(
+                f"{project.name} - Hardware Plan.xlsx"
+            )
+        },
     )

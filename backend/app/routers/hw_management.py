@@ -6,6 +6,7 @@ register row is returned with the sheet's per-year depreciation columns attached
 """
 
 from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
@@ -22,6 +23,7 @@ from ..config import (
 )
 from ..database import get_db
 from ..services import hw_depreciation, hw_excel
+from ..services.http import attachment_disposition
 from .hardware import XLSX_MEDIA_TYPE
 
 router = APIRouter(prefix="/api", tags=["hw-management"])
@@ -126,29 +128,30 @@ def project_rollup(project: models.HwProject, today: date) -> dict:
     return data
 
 
-def _register_row(row, fields: tuple[str, ...], costs: dict[str, float]) -> dict:
+def _register_row(row, fields: tuple[str, ...], costs: dict, reason: str | None) -> dict:
     data = {field: getattr(row, field) for field in fields}
     data["id"] = row.id
     data["hw_project_id"] = row.hw_project_id
-    data["per_year"] = costs
-    # Adding up the year columns, so the row total always matches what the grid
-    # displays rather than drifting a cent from it.
-    data["total"] = round(sum(costs.values()), 2)
+    data["per_year"] = costs["per_year"]
+    data["total"] = costs["total"]
+    data["uncounted_reason"] = reason
     return data
 
 
 def serialize_asset(asset: models.HwAsset, years: list[int]) -> dict:
-    return _register_row(asset, ASSET_FIELDS, hw_depreciation.per_year(
-        asset.purchase_type, asset.purchase_date, asset.eol_date,
-        asset.purchase_cost, years,
-    ))
+    return _register_row(
+        asset, ASSET_FIELDS,
+        hw_depreciation.asset_year_costs(asset, years),
+        hw_depreciation.asset_uncounted_reason(asset),
+    )
 
 
 def serialize_license(record: models.HwLicense, years: list[int]) -> dict:
-    return _register_row(record, LICENSE_FIELDS, hw_depreciation.per_year(
-        record.depreciation, record.purchase_date, record.termination_date,
-        record.purchase_cost, years,
-    ))
+    return _register_row(
+        record, LICENSE_FIELDS,
+        hw_depreciation.license_year_costs(record, years),
+        hw_depreciation.license_uncounted_reason(record),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -384,27 +387,75 @@ def replace_hw_adjustments(project_id: int, data: schemas.HwAdjustmentBulk,
 # Workbook import / export
 # ---------------------------------------------------------------------------
 
+def _duplicate_warnings(project: models.HwProject,
+                        preview: schemas.HwImportPreview) -> list[str]:
+    """Rows whose sheet ID is already in the register (or twice in the file)."""
+    warnings = []
+    for label, incoming, existing in (
+        ("Assets", [a.asset_tag for a in preview.assets],
+         [a.asset_tag for a in project.assets]),
+        ("Licenses", [row.license_tag for row in preview.licenses],
+         [row.license_tag for row in project.licenses]),
+    ):
+        tags = [tag.strip() for tag in incoming if tag and tag.strip()]
+        known = {tag.strip() for tag in existing if tag and tag.strip()}
+        repeated = sorted({tag for tag in tags if tags.count(tag) > 1})
+        clashing = sorted({tag for tag in tags if tag in known})
+        if repeated:
+            warnings.append(
+                f"{label}: {len(repeated)} ID(s) appear more than once in the file "
+                f"({', '.join(repeated[:5])}{', …' if len(repeated) > 5 else ''})"
+            )
+        if clashing:
+            warnings.append(
+                f"{label}: {len(clashing)} row(s) carry an ID that is already in the "
+                f"register ({', '.join(clashing[:5])}{', …' if len(clashing) > 5 else ''}); "
+                "appending adds them a second time, replacing the register does not"
+            )
+    return warnings
+
+
 @router.post("/hw/projects/{project_id}/import")
 def import_hw_workbook(project_id: int, file: UploadFile = File(...),
-                       dry_run: bool = True, db: Session = Depends(get_db)):
+                       dry_run: bool = True,
+                       mode: Literal["append", "replace"] = "append",
+                       db: Session = Depends(get_db)):
     """Read the working document's Assets and Licenses sheets into the registers.
 
-    `dry_run` previews the parse; only `dry_run=false` appends the rows.
+    `dry_run` previews the parse; only `dry_run=false` writes. `mode=append` adds
+    the rows to what is there, `mode=replace` first clears every register whose
+    sheet the workbook carries (a register the file does not mention is kept).
     """
     project = get_hw_project_or_404(project_id, db)
     try:
         parsed = hw_excel.parse_workbook(file.file.read())
+        # A pydantic ValidationError is a ValueError: a cell the parser let through
+        # but the schema refuses is reported as a bad file, not a server error.
+        preview = schemas.HwImportPreview(
+            assets=parsed["assets"],
+            licenses=parsed["licenses"],
+            warnings=parsed["warnings"],
+            sheets_found=parsed["sheets_found"],
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    preview = schemas.HwImportPreview(
-        assets=parsed["assets"],
-        licenses=parsed["licenses"],
-        warnings=parsed["warnings"],
-        sheets_found=parsed["sheets_found"],
-    )
+    preview.warnings = preview.warnings + _duplicate_warnings(project, preview)
     if dry_run:
         return preview
+    if not preview.assets and not preview.licenses:
+        raise HTTPException(status_code=400, detail="The workbook holds no rows to import")
+
+    found = {name.strip().lower() for name in preview.sheets_found}
+    replaced_assets = replaced_licenses = 0
+    if mode == "replace":
+        if any(name in hw_excel.SHEET_ALIASES[hw_excel.ASSET_SHEET] for name in found):
+            replaced_assets = len(project.assets)
+            project.assets = []
+        if any(name in hw_excel.SHEET_ALIASES[hw_excel.LICENSE_SHEET] for name in found):
+            replaced_licenses = len(project.licenses)
+            project.licenses = []
+        db.flush()
 
     for item in preview.assets:
         db.add(models.HwAsset(hw_project_id=project.id, **item.model_dump()))
@@ -414,6 +465,8 @@ def import_hw_workbook(project_id: int, file: UploadFile = File(...),
     return schemas.HwImportResult(
         created_assets=len(preview.assets),
         created_licenses=len(preview.licenses),
+        replaced_assets=replaced_assets,
+        replaced_licenses=replaced_licenses,
         warnings=preview.warnings,
     )
 
@@ -431,11 +484,14 @@ def export_hw_project_xlsx(project_id: int, db: Session = Depends(get_db)):
         project, project.assets, project.licenses,
         project_summary(project, today), catalog_items, today,
     )
-    filename = f"{project.name} - Hardware Management"
     return Response(
         content=content,
         media_type=XLSX_MEDIA_TYPE,
-        headers={"Content-Disposition": f'attachment; filename="{filename}.xlsx"'},
+        headers={
+            "Content-Disposition": attachment_disposition(
+                f"{project.name} - Hardware Management.xlsx"
+            )
+        },
     )
 
 
@@ -445,7 +501,6 @@ def hw_import_template_xlsx():
         content=hw_excel.build_import_template(),
         media_type=XLSX_MEDIA_TYPE,
         headers={
-            "Content-Disposition":
-                'attachment; filename="Hardware Import Template.xlsx"'
+            "Content-Disposition": attachment_disposition("Hardware Import Template.xlsx")
         },
     )

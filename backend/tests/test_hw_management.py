@@ -380,8 +380,10 @@ def test_license_register(client, licenses_project):
     assert leased["per_year"] == {
         "2025": 1192.89, "2026": 2385.78, "2027": 2385.78, "2028": 1391.71,
     }
-    assert leased["total"] == pytest.approx(sum(leased["per_year"].values()))
-    assert leased["total"] == 7356.16
+    # The total is rounded once from full precision, like the sheet's SUM over
+    # unrounded cells, so it can sit a cent away from adding up the shown cells.
+    assert leased["total"] == 7356.17
+    assert round(sum(leased["per_year"].values()), 2) == 7356.16
 
     resp = client.post(f"/api/hw/projects/{licenses_project}/licenses", json=hw_license(
         license_tag="L-2", name="Planned Compiler", category="Compiler",
