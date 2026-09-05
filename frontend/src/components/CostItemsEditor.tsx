@@ -70,6 +70,7 @@ export default function CostItemsEditor({
           <div className="min-w-40 flex-1">
             <Label>Name</Label>
             <Input
+              aria-label="Cost item name"
               value={item.name}
               onChange={(e) => update(i, { name: e.target.value })}
               placeholder="e.g. AUTOSAR license"
@@ -78,6 +79,7 @@ export default function CostItemsEditor({
           <div>
             <Label>Category</Label>
             <Select
+              aria-label="Category"
               value={item.category}
               onChange={(e) => update(i, { category: e.target.value as CostItem['category'] })}
               className="w-28"
@@ -93,6 +95,7 @@ export default function CostItemsEditor({
             <Label>{item.is_recurring ? '€ / month' : 'Amount (€)'}</Label>
             <Input
               type="number"
+              aria-label="Amount"
               min={0}
               step={100}
               className="w-28"
@@ -103,6 +106,7 @@ export default function CostItemsEditor({
           <div>
             <Label>Type</Label>
             <Select
+              aria-label="Type"
               value={item.is_recurring ? 'recurring' : 'one-time'}
               onChange={(e) =>
                 update(i, {
@@ -120,6 +124,7 @@ export default function CostItemsEditor({
             <Label>{item.is_recurring ? 'From' : 'Month'}</Label>
             <Input
               type="month"
+              aria-label={item.is_recurring ? 'From month' : 'Month'}
               className="w-38"
               min={projectStart}
               max={projectEnd}
@@ -132,6 +137,7 @@ export default function CostItemsEditor({
               <Label>To</Label>
               <Input
                 type="month"
+                aria-label="To month"
                 className="w-38"
                 min={projectStart}
                 max={projectEnd}
@@ -149,7 +155,12 @@ export default function CostItemsEditor({
             />
             billed to customer
           </label>
-          <Button variant="ghost" onClick={() => remove(i)}>
+          <Button
+            variant="ghost"
+            onClick={() => remove(i)}
+            aria-label={`Remove cost item ${item.name.trim() || i + 1}`}
+            title="Remove cost item"
+          >
             ✕
           </Button>
         </div>

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import type { PortfolioCapacity, ProjectSummary } from '../types'
-import { Card, EmptyState, ErrorBanner, Spinner, StatusBadge } from '../components/ui'
+import { Card, EmptyState, ErrorBanner, KpiTile, Spinner, StatusBadge } from '../components/ui'
 import { MONTH_NAMES, formatEuro, formatNumber } from '../utils'
 import { useVault } from '../vault/VaultContext'
 import { VaultPrompt, VaultStatusButton } from '../vault/VaultGate'
@@ -92,7 +92,7 @@ export default function PortfolioPage() {
                 }),
               )
             : emptyMoneyConfig(meta.locations, meta.levels, meta.ticket_sizes)
-        const plan = computeBudgetPlan(full, money, rates)
+        const plan = computeBudgetPlan(full, money, rates, meta.hours_per_fte_per_month)
         const revenue = plan.cost_profit_overall.reduce((s, r) => s + r.selling_price, 0)
         const cost = plan.cost_profit_overall.reduce((s, r) => s + r.cost, 0)
         rows.push({
@@ -171,22 +171,22 @@ export default function PortfolioPage() {
         </div>
       ) : (
         <div className="mb-6 grid gap-4 sm:grid-cols-4">
-          <StatTile
+          <KpiTile
             label="Pipeline value"
             value={pipeline === undefined ? null : formatEuro(pipeline)}
             hint="Total revenue of selected statuses; a marked winner stands for its project"
           />
-          <StatTile
+          <KpiTile
             label="Weighted revenue"
             value={weighted === undefined ? null : formatEuro(weighted)}
             hint="Win-probability weighted"
           />
-          <StatTile
+          <KpiTile
             label="Won value"
             value={wonValue === undefined ? null : formatEuro(wonValue ?? 0)}
             hint="Revenue of won RFQs"
           />
-          <StatTile
+          <KpiTile
             label="Hit rate"
             value={hitRate === null ? '—' : `${formatNumber(hitRate, 0)}%`}
             hint={`${wonCount} won / ${lostCount} lost`}
@@ -274,16 +274,6 @@ export default function PortfolioPage() {
           <CapacityHeatmap capacity={capacity} />
         )}
       </Card>
-    </div>
-  )
-}
-
-function StatTile({ label, value, hint }: { label: string; value: string | null; hint: string }) {
-  return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-      <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
-      <p className="mt-1 text-xl font-bold text-slate-100">{value ?? '…'}</p>
-      <p className="mt-1 text-xs text-slate-500">{hint}</p>
     </div>
   )
 }

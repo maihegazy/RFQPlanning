@@ -2,7 +2,16 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
 import type { Meta, Project, ProjectSummary } from '../types'
-import { Button, ErrorBanner, Input, Label, Modal, Spinner, StatusBadge } from '../components/ui'
+import {
+  Button,
+  ErrorBanner,
+  Input,
+  Label,
+  Modal,
+  PromptDialog,
+  Spinner,
+  StatusBadge,
+} from '../components/ui'
 import { VaultStatusButton } from '../vault/VaultGate'
 import InfoTab from '../tabs/InfoTab'
 import ResourcesTab from '../tabs/ResourcesTab'
@@ -149,13 +158,11 @@ export default function ProjectPage() {
     }
   }, [])
 
-  const newScenario = async () => {
+  const [namingScenario, setNamingScenario] = useState(false)
+
+  const newScenario = async (name: string) => {
     if (!project) return
-    const name = window.prompt(
-      'Scenario name:',
-      `${project.name} — Scenario ${String.fromCharCode(65 + family.length)}`,
-    )
-    if (!name) return
+    setNamingScenario(false)
     try {
       const clone = await api.cloneProject(project.id, name, true)
       navigate(`/projects/${clone.id}`)
@@ -211,7 +218,7 @@ export default function ProjectPage() {
                 ))}
               </select>
             )}
-            <Button variant="secondary" onClick={newScenario}>
+            <Button variant="secondary" onClick={() => setNamingScenario(true)}>
               + New Scenario
             </Button>
             <Button variant="secondary" onClick={() => setShowSaveTemplate(true)}>
@@ -242,6 +249,16 @@ export default function ProjectPage() {
 
       {showSaveTemplate && (
         <SaveTemplateModal project={project} onClose={() => setShowSaveTemplate(false)} />
+      )}
+      {namingScenario && (
+        <PromptDialog
+          title="New scenario"
+          label="Scenario name"
+          initialValue={`${project.name} — Scenario ${String.fromCharCode(65 + family.length)}`}
+          submitLabel="Create scenario"
+          onSubmit={newScenario}
+          onCancel={() => setNamingScenario(false)}
+        />
       )}
 
       <Routes>

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
 import type { HardwareBilling, HardwareCatalogItem, HardwareCatalogItemInput, Meta } from '../types'
-import { Button, EmptyState, ErrorBanner, Input, Label, Select, Spinner } from './ui'
+import { Button, EmptyState, ErrorBanner, Input, Label, Select, Spinner, Stat } from './ui'
 import { formatEuro } from '../utils'
 
 const EMPTY_FORM: HardwareCatalogItemInput = {
@@ -27,15 +27,6 @@ function Pill({ tone, children }: { tone: 'sky' | 'amber' | 'slate'; children: R
     >
       {children}
     </span>
-  )
-}
-
-function Stat({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2">
-      <div className="text-base font-semibold text-slate-100">{value}</div>
-      <div className="text-xs text-slate-500">{label}</div>
-    </div>
   )
 }
 
@@ -119,6 +110,25 @@ export default function HardwareCatalogManager({ onChanged }: { onChanged?: () =
   }
 
   const sortArrow = (key: SortKey) => (key === sortKey ? (sortAsc ? ' ↑' : ' ↓') : '')
+  const ariaSort = (key: SortKey) =>
+    key === sortKey ? (sortAsc ? ('ascending' as const) : ('descending' as const)) : undefined
+  /** A sortable header is a real button, so the keyboard and screen readers get it too. */
+  const sortHeader = (key: SortKey, label: string, right = false) => (
+    <th
+      scope="col"
+      aria-sort={ariaSort(key)}
+      className={`px-3 py-2.5 ${right ? 'text-right' : ''}`}
+    >
+      <button
+        type="button"
+        onClick={() => toggleSort(key)}
+        className="cursor-pointer uppercase tracking-wide hover:text-slate-200"
+      >
+        {label}
+        {sortArrow(key)}
+      </button>
+    </th>
+  )
 
   const startEdit = (item: HardwareCatalogItem) => {
     setEditingId(item.id)
@@ -178,8 +188,8 @@ export default function HardwareCatalogManager({ onChanged }: { onChanged?: () =
         </p>
         {items && (
           <div className="flex gap-2">
-            <Stat label="items" value={items.length} />
-            <Stat label="suppliers" value={suppliers.length} />
+            <Stat size="sm" label="items" value={items.length} />
+            <Stat size="sm" label="suppliers" value={suppliers.length} />
             <Stat
               label="yearly / one-time"
               value={`${yearlyCount} / ${items.length - yearlyCount}`}
@@ -241,28 +251,19 @@ export default function HardwareCatalogManager({ onChanged }: { onChanged?: () =
             <table className="w-full text-sm">
               <thead className="sticky top-0 z-10 bg-slate-900">
                 <tr className="border-b border-slate-700 text-left text-xs uppercase tracking-wide text-slate-400">
-                  <th
-                    className="cursor-pointer px-3 py-2.5 hover:text-slate-200"
-                    onClick={() => toggleSort('name')}
-                  >
-                    Item{sortArrow('name')}
+                  {sortHeader('name', 'Item')}
+                  <th scope="col" className="px-3 py-2.5">
+                    ASPICE
                   </th>
-                  <th className="px-3 py-2.5">ASPICE</th>
-                  <th className="px-3 py-2.5">Billing</th>
-                  <th
-                    className="cursor-pointer px-3 py-2.5 text-right hover:text-slate-200"
-                    onClick={() => toggleSort('unit_cost')}
-                  >
-                    Unit Cost{sortArrow('unit_cost')}
+                  <th scope="col" className="px-3 py-2.5">
+                    Billing
                   </th>
-                  <th
-                    className="cursor-pointer px-3 py-2.5 hover:text-slate-200"
-                    onClick={() => toggleSort('supplier_name')}
-                  >
-                    Supplier{sortArrow('supplier_name')}
+                  {sortHeader('unit_cost', 'Unit Cost', true)}
+                  {sortHeader('supplier_name', 'Supplier')}
+                  <th scope="col" className="px-3 py-2.5">
+                    Contact
                   </th>
-                  <th className="px-3 py-2.5">Contact</th>
-                  <th className="px-3 py-2.5" />
+                  <th scope="col" className="px-3 py-2.5" />
                 </tr>
               </thead>
               <tbody>

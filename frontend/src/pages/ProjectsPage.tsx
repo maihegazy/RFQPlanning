@@ -4,13 +4,15 @@ import { api } from '../api'
 import type { ProjectSummary, ProjectTemplate } from '../types'
 import {
   Button,
-  ErrorBanner,
+  ConfirmDialog,
   EmptyState,
+  ErrorBanner,
   Input,
   Label,
   Modal,
   Select,
   Spinner,
+  Stat,
   StatusBadge,
 } from '../components/ui'
 import { MONTH_NAMES } from '../utils'
@@ -58,23 +60,6 @@ function relativeTime(iso: string): string {
   if (days < 30) return `${days} days ago`
   const months = Math.round(days / 30)
   return months <= 1 ? 'last month' : `${months} months ago`
-}
-
-function Stat({
-  label,
-  value,
-  tone = 'text-slate-100',
-}: {
-  label: string
-  value: string | number
-  tone?: string
-}) {
-  return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3">
-      <div className={`text-2xl font-semibold ${tone}`}>{value}</div>
-      <div className="mt-0.5 text-xs uppercase tracking-wide text-slate-500">{label}</div>
-    </div>
-  )
 }
 
 function ProjectCard({
@@ -174,7 +159,6 @@ export default function ProjectsPage() {
   const [sortKey, setSortKey] = useState<SortKey>('updated')
   const [pendingImport, setPendingImport] = useState<LegacyImport | null>(null)
   const [showImportVault, setShowImportVault] = useState(false)
-  const [importReady, setImportReady] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
 
   // Load once and filter in the browser: the list is small, and it keeps the
@@ -211,12 +195,13 @@ export default function ProjectsPage() {
     [vault],
   )
 
+  // The deferred import resumes as soon as the vault is unlocked, whether from
+  // the dialog opened for it or from the header's vault button.
   useEffect(() => {
-    if (!pendingImport || !importReady || vault.status !== 'unlocked') return
+    if (!pendingImport || vault.status !== 'unlocked') return
 
     const data = pendingImport
     setPendingImport(null)
-    setImportReady(false)
     setShowImportVault(false)
     importProject(data)
       .then(() => {
@@ -224,10 +209,22 @@ export default function ProjectsPage() {
         load()
       })
       .catch((e) => setError(`Import failed: ${(e as Error).message}`))
-  }, [importProject, importReady, load, pendingImport, vault.status])
+  }, [importProject, load, pendingImport, vault.status])
 
-  const handleDelete = async (project: ProjectSummary) => {
-    if (!window.confirm(`Delete project "${project.name}"? This cannot be undone.`)) return
+  const cancelPendingImport = () => {
+    setShowImportVault(false)
+    if (pendingImport) {
+      setPendingImport(null)
+      setNotice('Import cancelled: unlock the vault and choose the file again to import it.')
+    }
+  }
+
+  const [deleting, setDeleting] = useState<ProjectSummary | null>(null)
+
+  const handleDelete = async () => {
+    const project = deleting
+    setDeleting(null)
+    if (project === null) return
     try {
       await api.deleteProject(project.id)
       load()
@@ -243,7 +240,6 @@ export default function ProjectsPage() {
       const data = JSON.parse(await file.text()) as LegacyImport
       if (containsFinancialData(data) && vault.status !== 'unlocked') {
         setPendingImport(data)
-        setImportReady(false)
         setShowImportVault(true)
         setNotice('Unlock the financial vault to continue this import securely.')
         return
@@ -477,7 +473,7 @@ export default function ProjectsPage() {
                 key={p.id}
                 project={p}
                 onExport={() => handleExport(p)}
-                onDelete={() => handleDelete(p)}
+                onDelete={() => setDeleting(p)}
               />
             ))}
           </div>
@@ -497,12 +493,15 @@ export default function ProjectsPage() {
           }}
         />
       )}
-      {showImportVault && (
-        <VaultDialog
-          onUnlocked={() => setImportReady(true)}
-          onClose={() => setShowImportVault(false)}
+      {deleting !== null && (
+        <ConfirmDialog
+          title="Delete project"
+          message={`Delete project "${deleting.name}"? This cannot be undone.`}
+          onConfirm={handleDelete}
+          onCancel={() => setDeleting(null)}
         />
       )}
+      {showImportVault && <VaultDialog onClose={cancelPendingImport} />}
     </div>
   )
 }
@@ -574,6 +573,16 @@ function CreateProjectModal({
   const [endMonth, setEndMonth] = useState(now.getMonth() + 1)
   const [templates, setTemplates] = useState<ProjectTemplate[]>([])
   const [templateId, setTemplateId] = useState<string | null>(null)
+  const [deletingTemplate, setDeletingTemplate] = useState<ProjectTemplate | null>(null)
+
+  const deleteTemplate = async () => {
+    const template = deletingTemplate
+    setDeletingTemplate(null)
+    if (template === null) return
+    await api.deleteTemplate(template.id)
+    if (templateId === template.id) setTemplateId(null)
+    setTemplates(await api.listTemplates())
+  }
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -683,16 +692,7 @@ function CreateProjectModal({
                   (n, f) => n + f.roles.length,
                   0,
                 )} roles`}
-                onDelete={
-                  t.custom
-                    ? async () => {
-                        if (!window.confirm(`Delete template "${t.name}"?`)) return
-                        await api.deleteTemplate(t.id)
-                        if (templateId === t.id) setTemplateId(null)
-                        setTemplates(await api.listTemplates())
-                      }
-                    : undefined
-                }
+                onDelete={t.custom ? () => setDeletingTemplate(t) : undefined}
               />
             ))}
           </div>
@@ -720,6 +720,14 @@ function CreateProjectModal({
           </Button>
         </div>
       </div>
+      {deletingTemplate !== null && (
+        <ConfirmDialog
+          title="Delete template"
+          message={`Delete template "${deletingTemplate.name}"? Projects created from it are not affected.`}
+          onConfirm={() => void deleteTemplate()}
+          onCancel={() => setDeletingTemplate(null)}
+        />
+      )}
     </Modal>
   )
 }

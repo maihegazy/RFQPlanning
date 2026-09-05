@@ -7,6 +7,7 @@
  */
 
 import type { HardwareCatalogItem, HardwareItemInput, Project, Role } from '../types'
+import { roleFtesForMonth } from '../money/engine'
 import { monthRange, formatMonth } from '../utils'
 
 /** Roles that lead the project rather than occupying a bench. */
@@ -21,12 +22,7 @@ export function isProjectLead(role: Pick<Role, 'name'>): boolean {
 export function roleFtes(role: Role, months: string[]): number {
   if (!role.use_advanced_allocation || role.allocations.length === 0) return role.ftes
   if (months.length === 0) return 0
-  let total = 0
-  for (const month of months) {
-    for (const alloc of role.allocations) {
-      if (alloc.start_month <= month && month <= alloc.end_month) total += alloc.ftes
-    }
-  }
+  const total = months.reduce((sum, month) => sum + roleFtesForMonth(role, month), 0)
   return total / months.length
 }
 

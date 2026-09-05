@@ -3,6 +3,40 @@
  * project page that saves them, and the import dialog).
  */
 import type { HwAssetInput, HwLicenseInput } from '../types'
+import { parseIsoDate } from './depreciation'
+
+export function round2(value: number): number {
+  return Math.round(value * 100) / 100
+}
+
+function pad2(value: number): string {
+  return String(value).padStart(2, '0')
+}
+
+/**
+ * `<input type="date">` renders blank for anything that is not exactly
+ * `YYYY-MM-DD`, and the register was imported from a workbook that can hand us
+ * a full datetime. Normalising here keeps a stored date visible instead of
+ * silently looking empty (and being wiped by the next edit).
+ */
+export function dateInputValue(value: string | null): string {
+  const parsed = parseIsoDate(value)
+  if (parsed === null) return ''
+  return `${parsed.getFullYear()}-${pad2(parsed.getMonth() + 1)}-${pad2(parsed.getDate())}`
+}
+
+/**
+ * The vocabulary plus the row's own value when the workbook holds free text the
+ * dropdown does not know — picking another option must be a deliberate act, not
+ * a side effect of opening the list.
+ */
+export function withCurrent(options: readonly string[], current: string): string[] {
+  return current !== '' && !options.includes(current) ? [...options, current] : [...options]
+}
+
+export function isPlanned(purchaseType: string): boolean {
+  return purchaseType.trim().toUpperCase() === 'PLANNED PURCHASE'
+}
 
 /** A fresh asset line: nothing bought, nothing known yet. */
 export const BLANK_ASSET: HwAssetInput = {

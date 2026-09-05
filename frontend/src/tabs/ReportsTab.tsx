@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import type { Meta, PivotTable, Project, RateConfig, ResourcePlan } from '../types'
-import { Button, Card, ErrorBanner, Spinner } from '../components/ui'
+import { Button, Card, ErrorBanner, LinkButton, Spinner } from '../components/ui'
 import { formatEuro, formatNumber } from '../utils'
 import { useVault } from '../vault/VaultContext'
 import { VaultPrompt } from '../vault/VaultGate'
@@ -62,7 +62,7 @@ export default function ReportsTab({ project, meta }: { project: Project; meta: 
           : emptyMoneyConfig(meta.locations, meta.levels, meta.ticket_sizes)
       if (seq !== moneySeq.current) return
       setMoney(config)
-      setBudget(computeBudgetPlan(project, config, rates))
+      setBudget(computeBudgetPlan(project, config, rates, meta.hours_per_fte_per_month))
     } catch (e) {
       if (seq === moneySeq.current) setError((e as Error).message)
     }
@@ -92,9 +92,9 @@ export default function ReportsTab({ project, meta }: { project: Project; meta: 
             ⬇ Download Budget Plan (Excel)
           </Button>
         )}
-        <a href={api.resourcePlanXlsxUrl(project.id)} download>
-          <Button variant="secondary">⬇ Download Resource Plan (Excel)</Button>
-        </a>
+        <LinkButton href={api.resourcePlanXlsxUrl(project.id)} download>
+          ⬇ Download Resource Plan (Excel)
+        </LinkButton>
       </div>
 
       {!unlocked ? (

@@ -3,17 +3,9 @@ import { api } from '../api'
 import type { Project, Role } from '../types'
 import { Button, EmptyState, ErrorBanner } from './ui'
 import { MONTH_NAMES, formatMonth, monthRange } from '../utils'
+import { roleFtesForMonth } from '../money/engine'
 
 type CellValues = Record<number, Record<string, number>>
-
-function roleFtesForMonth(role: Role, month: string): number {
-  if (!role.use_advanced_allocation || role.allocations.length === 0) return role.ftes
-  let total = 0
-  for (const alloc of role.allocations) {
-    if (alloc.start_month <= month && month <= alloc.end_month) total += alloc.ftes
-  }
-  return total
-}
 
 function buildInitialValues(project: Project, months: string[]): CellValues {
   const values: CellValues = {}
@@ -162,6 +154,7 @@ export default function ResourceGrid({
           <thead>
             <tr className="bg-slate-900">
               <th
+                scope="col"
                 className="sticky left-0 z-10 border-b border-r border-slate-700 bg-slate-900 px-3 py-2 text-left"
                 rowSpan={2}
               >
@@ -170,13 +163,18 @@ export default function ResourceGrid({
               {yearGroups.map(([year, span]) => (
                 <th
                   key={year}
+                  scope="colgroup"
                   colSpan={span}
                   className="border-b border-l border-slate-700 px-2 py-1.5 text-center font-semibold text-indigo-300"
                 >
                   {year}
                 </th>
               ))}
-              <th rowSpan={2} className="border-b border-l border-slate-700 px-3 py-2 text-right">
+              <th
+                rowSpan={2}
+                scope="col"
+                className="border-b border-l border-slate-700 px-3 py-2 text-right"
+              >
                 Total
                 <div className="font-normal text-slate-500">FTE-months</div>
               </th>
@@ -185,6 +183,7 @@ export default function ResourceGrid({
               {months.map((m) => (
                 <th
                   key={m}
+                  scope="col"
                   className="border-b border-l border-slate-800 px-1 py-1 text-center font-medium text-slate-400"
                 >
                   {MONTH_NAMES[Number(m.slice(5)) - 1].slice(0, 3)}

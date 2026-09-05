@@ -49,7 +49,7 @@ export default function CompareTab({
         const full = await api.getProject(summary.id)
         const months = projectMonths(full)
         const emptyMoney = emptyMoneyConfig(meta.locations, meta.levels, meta.ticket_sizes)
-        const effortRows = buildBudgetRows(full, emptyMoney, months)
+        const effortRows = buildBudgetRows(full, emptyMoney, months, meta.hours_per_fte_per_month)
         const fteMonths = effortRows.reduce((s, r) => s + r.ftes, 0)
         const manHours = effortRows.reduce((s, r) => s + r.man_hours, 0)
 
@@ -71,7 +71,7 @@ export default function CompareTab({
                 )
               : emptyMoney
           const rates = await api.getRates(summary.id)
-          const plan = computeBudgetPlan(full, money, rates)
+          const plan = computeBudgetPlan(full, money, rates, meta.hours_per_fte_per_month)
           revenue = plan.cost_profit_overall.reduce((s, r) => s + r.selling_price, 0)
           cost = plan.cost_profit_overall.reduce((s, r) => s + r.cost, 0)
           profit = revenue - cost
@@ -265,7 +265,9 @@ export default function CompareTab({
 function KpiRow({ label, values }: { label: string; values: React.ReactNode[] }) {
   return (
     <tr className="border-t border-slate-800/60">
-      <td className="py-2.5 pr-4 text-slate-400">{label}</td>
+      <th scope="row" className="py-2.5 pr-4 text-left font-normal text-slate-400">
+        {label}
+      </th>
       {values.map((v, i) => (
         <td key={i} className="py-2.5 pr-4 text-right">
           {v}

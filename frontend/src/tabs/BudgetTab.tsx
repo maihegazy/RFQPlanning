@@ -204,6 +204,7 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
                   <Label>{loc}</Label>
                   <Input
                     type="number"
+                    aria-label={`Hourly sell rate ${loc}`}
                     min={0}
                     step={0.5}
                     value={money.hourly_rates[loc] ?? 0}
@@ -224,6 +225,7 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
                 <Label>HW Cost / Hour (€)</Label>
                 <Input
                   type="number"
+                  aria-label="Hardware cost per hour"
                   min={0}
                   step={0.5}
                   value={money.hw_cost_per_hour}
@@ -238,6 +240,7 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
                 <Label>Rate escalation (% / year)</Label>
                 <Input
                   type="number"
+                  aria-label="Rate escalation per year"
                   min={0}
                   step={0.5}
                   value={money.rate_escalation_pct}
@@ -278,6 +281,7 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
                       <td key={lvl} className="py-2 pr-3">
                         <Input
                           type="number"
+                          aria-label={`Cost rate ${loc} ${lvl}`}
                           min={0}
                           step={0.5}
                           className="w-24"
@@ -326,6 +330,7 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
         <label className="mt-3 flex items-center gap-2 text-sm text-slate-300">
           <input
             type="checkbox"
+            aria-label="Bill the hardware plan to the customer"
             className="accent-indigo-500"
             checked={rates.hardware_pass_through}
             onChange={(e) =>
@@ -345,6 +350,7 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
             <Label>SP → Hours</Label>
             <Input
               type="number"
+              aria-label="Story points to hours"
               min={0}
               step={0.5}
               value={rates.sp_to_hours}
@@ -359,6 +365,7 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
             <Label>Risk Factor (%)</Label>
             <Input
               type="number"
+              aria-label="Risk factor"
               min={0}
               step={0.5}
               value={rates.risk_factor_pct}
@@ -394,6 +401,7 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
                   <td className="py-2 pr-4">
                     <Input
                       type="number"
+                      aria-label={`Story points ${size}`}
                       min={0}
                       step={0.5}
                       className="w-24"
@@ -411,6 +419,7 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
                     ) : (
                       <Input
                         type="number"
+                        aria-label={`Ticket price ${size}`}
                         min={0}
                         step={0.5}
                         className="w-24"
@@ -427,6 +436,7 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
                     <td key={y} className="py-2 pr-4">
                       <Input
                         type="number"
+                        aria-label={`Quota ${y} ${size}`}
                         min={0}
                         max={100}
                         step={1}

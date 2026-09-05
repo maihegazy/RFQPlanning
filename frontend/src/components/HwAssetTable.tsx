@@ -2,111 +2,21 @@ import { useMemo, useState } from 'react'
 import { Check, Ellipsis, Plus, Trash2, X } from 'lucide-react'
 import type { HardwareCatalogItem, HwAssetInput, HwMeta, HwPurchaseType } from '../types'
 import { assetYearCost, assetUncountedReason, parseIsoDate } from '../hardware/depreciation'
-import { BLANK_ASSET, isBlankAsset } from '../hardware/registers'
+import {
+  BLANK_ASSET,
+  isBlankAsset,
+  dateInputValue,
+  isPlanned,
+  round2,
+  withCurrent,
+} from '../hardware/registers'
 import { formatEuro } from '../utils'
+import { CostCell, PINNED_LEFT, PlannedPill, TextField, UncountedPill } from './registerCells'
 import { Button, EmptyState, Input, Label, Modal, Select } from './ui'
 
 /** Inline-editable columns before the computed per-year block, so the footer
  *  label knows how far to span. */
 const EDITABLE_COLUMNS = 7
-
-/**
- * The register is wider than any screen once the year columns are in, so the
- * name column is pinned — the frozen first column the working document used,
- * in CSS. A pinned cell needs an opaque background or the scrolling columns
- * show through it.
- */
-const PINNED_LEFT = 'sticky left-0 z-20 border-r border-slate-800 bg-slate-900'
-
-function round2(value: number): number {
-  return Math.round(value * 100) / 100
-}
-
-function pad2(value: number): string {
-  return String(value).padStart(2, '0')
-}
-
-/**
- * `<input type="date">` renders blank for anything that is not exactly
- * `YYYY-MM-DD`, and the register was imported from a workbook that can hand us
- * a full datetime. Normalising here keeps a stored date visible instead of
- * silently looking empty (and being wiped by the next edit).
- */
-function dateInputValue(value: string | null): string {
-  const parsed = parseIsoDate(value)
-  if (parsed === null) return ''
-  return `${parsed.getFullYear()}-${pad2(parsed.getMonth() + 1)}-${pad2(parsed.getDate())}`
-}
-
-/**
- * The vocabulary plus the row's own value when the workbook holds free text the
- * dropdown does not know — picking another option must be a deliberate act, not
- * a side effect of opening the list.
- */
-function withCurrent(options: readonly string[], current: string): string[] {
-  return current !== '' && !options.includes(current) ? [...options, current] : [...options]
-}
-
-function isPlanned(purchaseType: string): boolean {
-  return purchaseType.trim().toUpperCase() === 'PLANNED PURCHASE'
-}
-
-/** The row counts towards no year; the title says why, in the server's words. */
-function UncountedPill({ reason }: { reason: string }) {
-  return (
-    <span
-      title={reason}
-      className="ml-2 rounded-full border border-rose-900 bg-rose-950 px-2 py-0.5 text-[11px] font-medium whitespace-nowrap text-rose-300"
-    >
-      not counted
-    </span>
-  )
-}
-
-function PlannedPill() {
-  return (
-    <span className="ml-2 rounded-full border border-amber-800 bg-amber-950 px-2 py-0.5 text-[11px] font-medium whitespace-nowrap text-amber-300">
-      planned
-    </span>
-  )
-}
-
-/** One computed money cell. Planned money is muted: it is not committed spend. */
-function CostCell({ value, planned }: { value: number; planned: boolean }) {
-  if (value === 0) return <span className="text-slate-600">—</span>
-  return (
-    <span className={planned ? 'italic text-slate-500' : 'text-slate-200'}>
-      {formatEuro(value)}
-    </span>
-  )
-}
-
-function TextField({
-  label,
-  value,
-  onChange,
-  type = 'text',
-  placeholder,
-}: {
-  label: string
-  value: string
-  onChange: (next: string) => void
-  type?: string
-  placeholder?: string
-}) {
-  return (
-    <div>
-      <Label>{label}</Label>
-      <Input
-        aria-label={label}
-        type={type}
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-      />
-    </div>
-  )
-}
 
 /** Every asset field that does not fit the register grid. */
 function AssetDetailModal({

@@ -226,6 +226,8 @@ function SetupWizard({ onClose, onUnlocked }: { onClose: () => void; onUnlocked?
   const [busy, setBusy] = useState(false)
   const [recoveryContent, setRecoveryContent] = useState<string | null>(null)
   const [downloaded, setDownloaded] = useState(false)
+  /* Closing is refused until the recovery key is saved; say so instead of ignoring the click. */
+  const [closeRefused, setCloseRefused] = useState(false)
 
   const create = async () => {
     if (passphrase.length < 8) {
@@ -253,7 +255,13 @@ function SetupWizard({ onClose, onUnlocked }: { onClose: () => void; onUnlocked?
   }
 
   return (
-    <Modal title="Set Up Financial Data Vault" onClose={recoveryContent ? () => {} : onClose}>
+    <Modal
+      title="Set Up Financial Data Vault"
+      onClose={recoveryContent && !downloaded ? () => setCloseRefused(true) : onClose}
+      closeHint={
+        recoveryContent && !downloaded ? 'Download the recovery key before closing' : undefined
+      }
+    >
       {recoveryContent === null ? (
         <div className="space-y-4">
           <p className="text-sm leading-relaxed text-slate-400">
@@ -291,6 +299,12 @@ function SetupWizard({ onClose, onUnlocked }: { onClose: () => void; onUnlocked?
             the passphrase AND lose this file, your financial data is unrecoverable — by design,
             nobody else can decrypt it.
           </div>
+          {closeRefused && !downloaded && (
+            <p role="alert" className="text-sm text-amber-300">
+              This dialog stays open until the recovery key is downloaded: without the file, a
+              forgotten passphrase would lock the financial data away for good.
+            </p>
+          )}
           <Button onClick={downloadRecovery} className="w-full">
             ⬇ Download rfq-recovery-key.json
           </Button>

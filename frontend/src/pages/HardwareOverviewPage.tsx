@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   ArrowDown,
@@ -35,6 +35,7 @@ import {
   EmptyState,
   ErrorBanner,
   Input,
+  KpiTile,
   Label,
   Modal,
   Spinner,
@@ -54,39 +55,6 @@ function errorMessage(err: unknown): string {
 /* -------------------------------------------------------------------------- */
 /* KPI tiles                                                                   */
 /* -------------------------------------------------------------------------- */
-
-function KpiTile({
-  label,
-  value,
-  hint,
-  alert = false,
-  children,
-}: {
-  label: string
-  value: string
-  hint: string
-  alert?: boolean
-  children?: ReactNode
-}) {
-  return (
-    <div
-      className={`rounded-xl border p-4 ${
-        alert ? 'border-rose-800 bg-rose-950/40' : 'border-slate-800 bg-slate-900/60'
-      }`}
-    >
-      <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
-      <p
-        className={`mt-1 text-xl font-bold tabular-nums ${
-          alert ? 'text-rose-300' : 'text-slate-100'
-        }`}
-      >
-        {value}
-      </p>
-      <p className="mt-1 text-xs text-slate-500">{hint}</p>
-      {children}
-    </div>
-  )
-}
 
 function CountTile({ Icon, label, value }: { Icon: LucideIcon; label: string; value: number }) {
   return (
@@ -163,7 +131,7 @@ function Kpis({ overview }: { overview: HwOverview }) {
           label="Remaining"
           value={formatEuro(dashboard.remaining)}
           hint={over ? 'Over budget' : 'Budget minus committed spend'}
-          alert={over}
+          tone={over ? 'warning' : 'default'}
         >
           <div className="mt-3">
             <div className="h-2 overflow-hidden rounded-full bg-slate-800">

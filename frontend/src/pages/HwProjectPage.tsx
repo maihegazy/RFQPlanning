@@ -37,6 +37,8 @@ import {
   Input,
   Label,
   Modal,
+  KpiTile,
+  LinkButton,
   Spinner,
 } from '../components/ui'
 import { ConflictBanner } from '../components/ConflictBanner'
@@ -66,12 +68,6 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'assets', label: 'Assets' },
   { key: 'licenses', label: 'Licenses' },
 ]
-
-/** `Button` renders a <button>; the export has to be a real link so the browser
- *  performs the download itself instead of buffering the workbook through fetch.
- *  Same classes as the secondary button variant. */
-const LINK_BUTTON =
-  'inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3.5 py-2 text-sm font-medium text-slate-200 transition-colors hover:bg-slate-700'
 
 /** A catalog item priced per year is the working document's Leasing; a one-off
  *  price is a Purchase. Dates stay empty — only the buyer knows them. */
@@ -155,32 +151,6 @@ function describeImport(result: HwImportResult): string {
 function Money({ value, muted = false }: { value: number; muted?: boolean }) {
   if (value === 0) return <span className="text-slate-600">—</span>
   return <span className={muted ? 'text-slate-400' : 'text-slate-200'}>{formatEuro(value)}</span>
-}
-
-function KpiTile({
-  label,
-  value,
-  hint,
-  tone = 'default',
-}: {
-  label: string
-  value: string
-  hint: string
-  tone?: 'default' | 'warning'
-}) {
-  return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-      <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
-      <p
-        className={`mt-1 text-xl font-bold ${
-          tone === 'warning' ? 'text-rose-300' : 'text-slate-100'
-        }`}
-      >
-        {value}
-      </p>
-      <p className="mt-1 text-xs text-slate-500">{hint}</p>
-    </div>
-  )
 }
 
 function UtilisationBar({
@@ -1129,10 +1099,10 @@ export default function HwProjectPage() {
               </span>
             </Button>
           </span>
-          <a href={api.hwExportXlsxUrl(id)} download className={LINK_BUTTON}>
+          <LinkButton href={api.hwExportXlsxUrl(id)} download>
             <Download className="h-4 w-4" />
             Export Excel
-          </a>
+          </LinkButton>
           <Button onClick={() => setDialog('edit')}>
             <span className="flex items-center gap-1.5">
               <Pencil className="h-4 w-4" />
