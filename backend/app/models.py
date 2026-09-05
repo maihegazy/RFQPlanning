@@ -2,17 +2,6 @@
 
 from datetime import UTC, date, datetime
 
-
-def utc_now() -> datetime:
-    """The current UTC time as the naive value the timestamp columns store.
-
-    The columns are `TIMESTAMP WITHOUT TIME ZONE` on every engine; the API adds
-    the UTC offset when it serialises them (see `schemas.UtcDatetime`), so
-    clients never have to guess the zone. `utc_now` did the same job
-    but is deprecated since Python 3.12.
-    """
-    return datetime.now(UTC).replace(tzinfo=None)
-
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
@@ -35,6 +24,17 @@ from .config import (
     DEFAULT_SP_TO_HOURS,
 )
 from .database import Base
+
+
+def utc_now() -> datetime:
+    """The current UTC time as the naive value the timestamp columns store.
+
+    The columns are `TIMESTAMP WITHOUT TIME ZONE` on every engine; the API adds
+    the UTC offset when it serialises them (see `schemas.UtcDatetime`), so
+    clients never have to guess the zone. `datetime.utcnow()` did the same job
+    but is deprecated since Python 3.12.
+    """
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class Project(Base):
