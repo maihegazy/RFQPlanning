@@ -155,7 +155,7 @@ edit the `.in` file and recompile rather than editing the pinned file by hand.
 
 The app runs inside a portal shell (`components/AppLayout`): a persistent left
 sidebar with the Vehiclevo brand and collapsible navigation groups (RFQ
-Planning → Projects, Portfolio; Hardware → Overview, Catalog, Ordering
+Planning → Projects, Overview; Hardware → Overview, Catalog, Ordering
 Process), and a top bar with a sidebar toggle, a **light/dark theme switch**
 and an account menu. Navigation uses monochrome line icons (`lucide-react`)
 that inherit the current text colour. The sidebar hides behind the toggle on
@@ -194,7 +194,7 @@ per-theme classes.
   (`POST /api/projects/import`, `GET /api/projects/{id}/export`).
 - **Scenarios** — a project can be cloned into scenarios (`POST
   /api/projects/{id}/clone`) and one of them marked as the winner. The
-  Portfolio page and the capacity heatmap count each family once: the winning
+  RFQ Overview page (`/portfolio`) and the capacity heatmap count each family once: the winning
   scenario where one is marked, the base project otherwise
   (`GET /api/projects?effective=true`).
 - **Number formatting** follows the browser's locale ("1.234,56 €" in a German
@@ -365,7 +365,7 @@ shared hardware catalog entry, so there is one place per vendor.
 │       ├── components/        # UI kit, registers, dialogs, grid, catalog editor
 │       ├── hardware/          # Depreciation engine, budget/window/register helpers, auto-plan
 │       ├── money/             # Client-side budget engine, Excel workbook, portable file
-│       ├── pages/             # Projects, Portfolio, project workspace, hardware pages
+│       ├── pages/             # Projects, RFQ overview, project workspace, hardware pages
 │       ├── tabs/              # Info / Resources / Budget / Hardware / Reports / Scenarios
 │       ├── theme/             # Light/dark theme context
 │       ├── vault/             # Vault context and dialogs

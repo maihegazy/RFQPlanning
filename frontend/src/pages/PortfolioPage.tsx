@@ -135,7 +135,7 @@ export default function PortfolioPage() {
           <Link to="/" className="text-sm text-slate-400 hover:text-indigo-400">
             ← All projects
           </Link>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight">Portfolio</h1>
+          <h1 className="mt-1 text-2xl font-bold tracking-tight">Overview</h1>
         </div>
         <VaultStatusButton />
       </header>

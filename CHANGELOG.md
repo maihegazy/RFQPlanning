@@ -45,7 +45,7 @@ versioned releases yet; entries are grouped by the phases of the September
   number of queries whatever the project count, asserted by tests.
 
 ### Product decisions (phase 5)
-- Winning scenarios stand for their family in the Portfolio and the capacity
+- Winning scenarios stand for their family in the RFQ Overview and the capacity
   heatmap; the hardware plan flows into the cost-profit analysis as a
   non-labor row with a pass-through switch (the "hardware" cost-item category
   is retired for new items); hardware projects expose their planning window;
@@ -67,6 +67,8 @@ versioned releases yet; entries are grouped by the phases of the September
   fixed a vanishing recovery-key step in the vault setup.
 
 ### Hygiene (phase 8)
+- The RFQ Planning sidebar entry "Portfolio" is now "Overview" (the URL stays
+  `/portfolio`).
 - Timestamps leave the API with an explicit UTC offset; unknown ids inside a
   request body are validation errors (422); the management list's effective
   budget has its own field (`effective_budget`) next to the stored one;

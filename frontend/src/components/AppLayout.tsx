@@ -38,7 +38,7 @@ const GROUPS: NavGroup[] = [
     Icon: ClipboardList,
     items: [
       { to: '/', label: 'Projects', active: (p) => p === '/' || p.startsWith('/projects') },
-      { to: '/portfolio', label: 'Portfolio', active: (p) => p.startsWith('/portfolio') },
+      { to: '/portfolio', label: 'Overview', active: (p) => p.startsWith('/portfolio') },
     ],
   },
   {
