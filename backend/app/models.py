@@ -1,6 +1,17 @@
 """SQLAlchemy ORM models."""
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
+
+
+def utc_now() -> datetime:
+    """The current UTC time as the naive value the timestamp columns store.
+
+    The columns are `TIMESTAMP WITHOUT TIME ZONE` on every engine; the API adds
+    the UTC offset when it serialises them (see `schemas.UtcDatetime`), so
+    clients never have to guess the zone. `utc_now` did the same job
+    but is deprecated since Python 3.12.
+    """
+    return datetime.now(UTC).replace(tzinfo=None)
 
 from sqlalchemy import (
     Boolean,
@@ -71,9 +82,9 @@ class Project(Base):
     # endpoints compare it with the version a client last saw (409 on mismatch).
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=utc_now, onupdate=utc_now
     )
 
     features: Mapped[list["Feature"]] = relationship(
@@ -108,7 +119,7 @@ class HardwareCatalogItem(Base):
     unit_cost: Mapped[float] = mapped_column(Float, default=0.0)
     supplier_name: Mapped[str] = mapped_column(String(255), default="")
     supplier_email: Mapped[str] = mapped_column(String(255), default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class HardwareItem(Base):
@@ -156,7 +167,7 @@ class CustomTemplate(Base):
     description: Mapped[str] = mapped_column(String(1000), default="")
     # JSON: [{"name": str, "roles": [{"name","location","level","ftes"}]}]
     features_json: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class Vault(Base):
@@ -191,7 +202,7 @@ class Vault(Base):
     # so a blind request cannot lock everyone out. Null on vaults created before
     # the column existed, until their first unlock registers it.
     dek_verifier: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class Feature(Base):
@@ -341,9 +352,9 @@ class HwProject(Base):
     # See Project.version.
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=utc_now, onupdate=utc_now
     )
 
     assets: Mapped[list["HwAsset"]] = relationship(
@@ -392,9 +403,9 @@ class HwAsset(Base):
         ForeignKey("hardware_catalog_items.id", ondelete="SET NULL"), nullable=True
     )
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=utc_now, onupdate=utc_now
     )
 
     hw_project: Mapped[HwProject] = relationship(back_populates="assets")
@@ -437,9 +448,9 @@ class HwLicense(Base):
         ForeignKey("hardware_catalog_items.id", ondelete="SET NULL"), nullable=True
     )
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=utc_now, onupdate=utc_now
     )
 
     hw_project: Mapped[HwProject] = relationship(back_populates="licenses")
@@ -516,7 +527,7 @@ def touch_owner_timestamps(session: Session, _flush_context, _instances) -> None
     optimistic-concurrency token the write endpoints compare (see
     `services.versioning`); it moves once per flush however many rows changed.
     """
-    now = datetime.utcnow()
+    now = utc_now()
     touched: set[int] = set()
     for obj in list(session.new) + list(session.dirty) + list(session.deleted):
         if obj in session.dirty and not session.is_modified(obj):

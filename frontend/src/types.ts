@@ -256,11 +256,11 @@ export interface HwProjectRollup extends HwProject {
   actual_total: number
   planned_total: number
   /**
-   * The *effective* budget, unlike the field it shadows on `HwProjectInput`:
-   * the entered overall figure in 'overall' mode, the sum of the two component
-   * budgets in 'split' mode.
+   * What the project has to spend: the entered overall figure in 'overall'
+   * mode, the sum of the two component budgets in 'split' mode. `budget_total`
+   * (inherited) stays the stored overall figure.
    */
-  budget_total: number
+  effective_budget: number
   remaining: number
   licenses_expired: number
   licenses_expiring_90: number

@@ -274,7 +274,7 @@ type SortKey =
   | 'company'
   | 'asset_count'
   | 'license_count'
-  | 'budget_total'
+  | 'effective_budget'
   | 'actual_total'
   | 'planned_total'
   | 'remaining'
@@ -287,7 +287,7 @@ const PROJECT_COLUMNS: { key: SortKey; label: string; numeric: boolean }[] = [
   { key: 'company', label: 'Company', numeric: false },
   { key: 'asset_count', label: 'Assets', numeric: true },
   { key: 'license_count', label: 'Licenses', numeric: true },
-  { key: 'budget_total', label: 'Budget', numeric: true },
+  { key: 'effective_budget', label: 'Budget', numeric: true },
   { key: 'actual_total', label: 'Committed', numeric: true },
   { key: 'planned_total', label: 'Planned', numeric: true },
   { key: 'remaining', label: 'Remaining', numeric: true },
@@ -302,7 +302,7 @@ function sortValue(project: HwProjectRollup, key: SortKey): string | number {
       return project.company.toLowerCase()
     // Projects without a budget have no utilisation; -1 parks them at the end.
     case 'utilisation':
-      return project.budget_total > 0 ? project.actual_total / project.budget_total : -1
+      return project.effective_budget > 0 ? project.actual_total / project.effective_budget : -1
     default:
       return project[key]
   }
@@ -388,7 +388,7 @@ function ProjectsTable({
                 {project.license_count}
               </td>
               <td className="py-2 pl-4 text-right tabular-nums text-slate-400">
-                {formatEuro(project.budget_total)}
+                {formatEuro(project.effective_budget)}
               </td>
               <td className="py-2 pl-4 text-right tabular-nums text-slate-200">
                 {formatEuro(project.actual_total)}
@@ -404,7 +404,7 @@ function ProjectsTable({
                 {formatEuro(project.remaining)}
               </td>
               <td className="py-2 pl-4">
-                <UtilisationCell used={project.actual_total} budget={project.budget_total} />
+                <UtilisationCell used={project.actual_total} budget={project.effective_budget} />
               </td>
             </tr>
           ))}

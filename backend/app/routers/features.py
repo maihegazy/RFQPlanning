@@ -157,7 +157,7 @@ def update_resource_grid(project_id: int, data: schemas.ResourceGridUpdate,
         role = project_roles.get(entry.role_id)
         if role is None:
             raise HTTPException(
-                status_code=404,
+                status_code=422,
                 detail=f"Role {entry.role_id} not found in this project",
             )
 

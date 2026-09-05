@@ -217,7 +217,7 @@ def test_hw_project_crud(client):
     rollups = client.get("/api/hw/projects").json()
     row = next(p for p in rollups if p["id"] == project_id)
     assert row["asset_count"] == 0
-    assert row["budget_total"] == 2500.0
+    assert row["effective_budget"] == 2500.0
     assert row["remaining"] == 2500.0
 
     assert client.delete(f"/api/hw/projects/{project_id}").status_code == 204
@@ -354,7 +354,8 @@ def test_asset_catalog_link(client, assets_project):
     resp = client.post(f"/api/hw/projects/{assets_project}/assets", json=asset(
         name="Dangling", catalog_item_id=987654,
     ))
-    assert resp.status_code == 404
+    # The body names a catalog item that does not exist: a validation error
+    assert resp.status_code == 422
     assert resp.json()["detail"] == "Catalog item not found: 987654"
 
     client.put(f"/api/hw/projects/{assets_project}/assets", json={"items": []})
@@ -696,7 +697,8 @@ def test_overall_budget_ignores_the_split_figures(client):
 
     rollup = next(p for p in client.get("/api/hw/projects").json()
                   if p["id"] == project_id)
-    assert rollup["budget_total"] == 9000.0
+    assert rollup["effective_budget"] == 9000.0
+    assert rollup["budget_total"] == 9000.0  # the stored figure, unchanged
 
 
 def test_switching_budget_mode_reinstates_the_split(client):
@@ -973,7 +975,7 @@ def test_overview_aggregates_projects(client, overview_projects):
     assert data["asset_count"] == sum(p["asset_count"] for p in rollups)
     assert data["license_count"] == sum(p["license_count"] for p in rollups)
     assert data["dashboard"]["budget_total"] == pytest.approx(
-        sum(p["budget_total"] for p in rollups))
+        sum(p["effective_budget"] for p in rollups))
 
     by_id = {p["id"]: p for p in data["projects"]}
     assert by_id[first]["asset_count"] == 1

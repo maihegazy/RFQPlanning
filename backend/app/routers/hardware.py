@@ -129,6 +129,12 @@ def _get_catalog_or_404(item_id: int, db: Session) -> models.HardwareCatalogItem
     return record
 
 
+def _require_catalog_item(item_id: int, db: Session) -> None:
+    """A body's catalog link must exist; a bad one is a 422, not a missing page."""
+    if db.get(models.HardwareCatalogItem, item_id) is None:
+        raise HTTPException(status_code=422, detail=f"Catalog item not found: {item_id}")
+
+
 @router.put("/hardware-catalog/{item_id}",
             response_model=schemas.HardwareCatalogItemOut)
 def update_catalog_item(item_id: int, data: schemas.HardwareCatalogItemUpdate,
@@ -178,7 +184,7 @@ def create_hardware_item(project_id: int, data: schemas.HardwareItemCreate,
     project = get_project_or_404(project_id, db)
     _validate_years_in_timeline(project, data.years)
     if data.catalog_item_id is not None:
-        _get_catalog_or_404(data.catalog_item_id, db)
+        _require_catalog_item(data.catalog_item_id, db)
     payload = data.model_dump(exclude={"years"})
     record = models.HardwareItem(
         project_id=project.id,
@@ -264,7 +270,7 @@ def update_hardware_item(item_id: int, data: schemas.HardwareItemUpdate,
     project = get_project_or_404(record.project_id, db)
     _validate_years_in_timeline(project, data.years)
     if data.catalog_item_id is not None:
-        _get_catalog_or_404(data.catalog_item_id, db)
+        _require_catalog_item(data.catalog_item_id, db)
     for key, value in data.model_dump(exclude={"years"}).items():
         setattr(record, key, value)
     record.years_json = json.dumps(data.years)

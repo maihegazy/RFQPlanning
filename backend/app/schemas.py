@@ -1,6 +1,6 @@
 """Pydantic request/response schemas."""
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Annotated
 
 from pydantic import (
@@ -8,6 +8,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    PlainSerializer,
     field_validator,
     model_validator,
 )
@@ -34,6 +35,19 @@ class ApiModel(BaseModel):
 
 def _cents(value: float) -> float:
     return round(value, 2)
+
+
+def _iso_utc(value: datetime) -> str:
+    """Timestamps leave the API with an explicit UTC offset.
+
+    The columns store naive UTC (see `models.utc_now`); a bare
+    "2026-09-05T10:00:00" would be read as local time by every browser.
+    """
+    aware = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+    return aware.isoformat().replace("+00:00", "Z")
+
+
+UtcDatetime = Annotated[datetime, PlainSerializer(_iso_utc, return_type=str)]
 
 
 # Money is stored to the cent: what the export writes is what the import reads back.
@@ -226,8 +240,8 @@ class ProjectSummary(ProjectBase):
     is_winning_scenario: bool = False
     # Optimistic-concurrency token: send it back as `expected_version` on writes.
     version: int = 1
-    created_at: datetime
-    updated_at: datetime
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
 
 
 class CloneRequest(ApiModel):
@@ -647,7 +661,7 @@ class HardwareCatalogItemOut(HardwareCatalogItemBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 class HardwareItemBase(HardwareCatalogItemBase):
@@ -753,8 +767,8 @@ class HwProjectOut(HwProjectInput):
     id: int
     # Optimistic-concurrency token: send it back as `expected_version` on writes.
     version: int = 1
-    created_at: datetime
-    updated_at: datetime
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
 
 
 class HwProjectRollupOut(HwProjectOut):
@@ -764,7 +778,10 @@ class HwProjectRollupOut(HwProjectOut):
     license_count: int = 0
     actual_total: float = 0.0
     planned_total: float = 0.0
-    budget_total: float = 0.0
+    # What the project has to spend: the overall figure in "overall" mode, the
+    # sum of the two component budgets in "split" mode. `budget_total` above
+    # stays the stored figure, so a row echoed back through PUT changes nothing.
+    effective_budget: float = 0.0
     remaining: float = 0.0
     licenses_expired: int = 0
     licenses_expiring_90: int = 0

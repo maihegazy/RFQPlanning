@@ -1,9 +1,10 @@
 # RFQ Planner — Web Application
 
-A modern, production-ready web version of the Vehiclevo RFQ Planner. It preserves
-the original desktop app's complete business logic — resource planning with
-period-based FTE allocation, cost-profit analysis, ticket-based pricing and
-formatted Excel reports — as a web application built on:
+The web version of the Vehiclevo RFQ Planner. It preserves the original desktop
+app's complete business logic — resource planning with period-based FTE
+allocation, cost-profit analysis, ticket-based pricing and formatted Excel
+reports — and adds the hardware management module, as a web application built
+on:
 
 | Layer    | Technology                          |
 | -------- | ----------------------------------- |
@@ -13,7 +14,9 @@ formatted Excel reports — as a web application built on:
 | Database | PostgreSQL + SQLAlchemy 2           |
 | API      | RESTful JSON + Excel downloads      |
 
-No authentication/authorization — designed to run behind an existing system.
+The app has no login of its own: it is designed to run behind an authenticating
+reverse proxy, and the "Deployment contract" section below is the list of what
+that deployment has to provide before the stack faces a network.
 
 ## End-to-end encrypted financial data
 
@@ -341,21 +344,33 @@ shared hardware catalog entry, so there is one place per vendor.
 
 ```
 ├── backend/
+│   ├── alembic/               # Migration chain (baseline + one file per change)
 │   ├── app/
-│   │   ├── main.py            # FastAPI app
-│   │   ├── config.py          # Domain constants (levels, locations, …)
+│   │   ├── main.py            # FastAPI app, middleware, validation-error shape
+│   │   ├── config.py          # Domain constants, environment settings
 │   │   ├── database.py        # SQLAlchemy engine/session, migrations, health probe
 │   │   ├── migrate.py         # `python -m app.migrate`: upgrade the schema and exit
-│   │   ├── models.py          # ORM models
+│   │   ├── models.py          # ORM models (+ the owner-timestamp/version listener)
 │   │   ├── schemas.py         # Pydantic schemas
+│   │   ├── data/              # Hardware catalog seed
 │   │   ├── routers/           # REST endpoints
-│   │   └── services/          # Business logic (calculations, Excel export)
-│   └── tests/                 # End-to-end API tests
+│   │   └── services/          # Calculations, Excel in/out, depreciation, versioning
+│   ├── scripts/               # Catalog re-seed, seed-and-time for the aggregates
+│   └── tests/                 # API tests (SQLite by default, PostgreSQL in CI)
 ├── frontend/
+│   ├── e2e/                   # Playwright smoke test against a running stack
 │   └── src/
 │       ├── api.ts             # Typed API client
-│       ├── pages/             # Projects list, project workspace
-│       ├── tabs/              # Info / Resources / Budget / Reports tabs
-│       └── components/        # UI kit, role & allocation editor
-└── docker-compose.yml         # PostgreSQL + backend + frontend (nginx)
+│       ├── crypto.ts          # Vault key hierarchy (WebCrypto)
+│       ├── components/        # UI kit, registers, dialogs, grid, catalog editor
+│       ├── hardware/          # Depreciation engine, budget/window/register helpers, auto-plan
+│       ├── money/             # Client-side budget engine, Excel workbook, portable file
+│       ├── pages/             # Projects, Portfolio, project workspace, hardware pages
+│       ├── tabs/              # Info / Resources / Budget / Hardware / Reports / Scenarios
+│       ├── theme/             # Light/dark theme context
+│       ├── vault/             # Vault context and dialogs
+│       └── test/              # Vitest setup (jsdom, Testing Library)
+├── docs/                      # The September 2026 review and phased plan
+├── .env.example               # Settings the Compose stack reads
+└── docker-compose.yml         # PostgreSQL + one-shot migrate + backend + frontend (nginx)
 ```

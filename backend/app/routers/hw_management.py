@@ -114,7 +114,9 @@ def check_catalog_items(catalog_item_ids, db: Session) -> None:
     }
     missing = sorted(wanted - found)
     if missing:
-        raise HTTPException(status_code=404,
+        # The body names a catalog item that does not exist: the request is
+        # invalid (422); 404 is for the path's resource.
+        raise HTTPException(status_code=422,
                             detail=f"Catalog item not found: {missing[0]}")
 
 
@@ -160,7 +162,7 @@ def project_rollup(project: models.HwProject, today: date,
         license_count=summary["license_count"],
         actual_total=summary["totals"]["actual_total"],
         planned_total=summary["totals"]["planned_total"],
-        budget_total=summary["dashboard"]["budget_total"],
+        effective_budget=summary["dashboard"]["budget_total"],
         remaining=summary["dashboard"]["remaining"],
         licenses_expired=risk["expired"],
         # The renewal-risk tile counts what still has to be renewed, so the

@@ -51,10 +51,9 @@ function monthSpan(p: ProjectSummary): number {
   return (p.end_year - p.start_year) * 12 + (p.end_month - p.start_month) + 1
 }
 
-/** Timestamps arrive as naive UTC — normalise before comparing to "now". */
+/** Timestamps arrive with their UTC offset, so the browser parses them as-is. */
 function relativeTime(iso: string): string {
-  const stamp = /[Z+]/.test(iso) ? iso : `${iso}Z`
-  const days = Math.floor((Date.now() - new Date(stamp).getTime()) / 86_400_000)
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000)
   if (days <= 0) return 'today'
   if (days === 1) return 'yesterday'
   if (days < 30) return `${days} days ago`
