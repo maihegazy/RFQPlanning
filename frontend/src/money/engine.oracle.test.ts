@@ -97,6 +97,7 @@ function toProject(fx: Fixture): Project {
     lost_reason: null,
     base_project_id: null,
     is_winning_scenario: false,
+    version: 1,
     created_at: '',
     updated_at: '',
     features,
@@ -116,6 +117,7 @@ function toRates(fx: Fixture): RateConfig {
   return {
     sp_to_hours: fx.rates.sp_to_hours,
     risk_factor_pct: fx.rates.risk_factor_pct,
+    version: 1,
     ticket_story_points: fx.rates.ticket_story_points,
     ticket_quotas: fx.rates.ticket_quotas,
   }

@@ -4,6 +4,7 @@ import type {
   HardwareCatalogItemInput,
   HardwareItem,
   HardwareItemInput,
+  HardwareItemUpsert,
   HardwarePlan,
   HwAdjustment,
   HwAsset,
@@ -18,10 +19,12 @@ import type {
   HwProject,
   HwProjectInput,
   HwProjectRollup,
+  HwRegisterResult,
   HwSummary,
   LegacyMoney,
   Meta,
   MoneyBlob,
+  MoneyBlobUpdate,
   PortfolioCapacity,
   Project,
   ProjectSummary,
@@ -32,6 +35,7 @@ import type {
   RoleInput,
   ValidationResult,
   VaultInfo,
+  Versioned,
 } from './types'
 
 const BASE = import.meta.env.VITE_API_URL ?? ''
@@ -42,6 +46,11 @@ class ApiError extends Error {
     super(message)
     this.status = status
   }
+}
+
+/** True for the 409 the API answers when a save was built from a stale version. */
+export function isConflict(error: unknown): error is ApiError {
+  return error instanceof ApiError && error.status === 409
 }
 
 /** One entry of a FastAPI validation error: where it happened and what was wrong. */
@@ -210,7 +219,7 @@ export const api = {
     }),
 
   getRates: (projectId: number) => request<RateConfig>(`/api/projects/${projectId}/rates`),
-  updateRates: (projectId: number, data: Partial<RateConfig>) =>
+  updateRates: (projectId: number, data: Partial<RateConfig> & Versioned) =>
     request<RateConfig>(`/api/projects/${projectId}/rates`, {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -250,6 +259,12 @@ export const api = {
     }),
   deleteHardwareItem: (itemId: number) =>
     request<void>(`/api/hardware-items/${itemId}`, { method: 'DELETE' }),
+  /** Save the whole plan in one transaction; rows with an id keep their row. */
+  replaceHardwarePlan: (projectId: number, items: HardwareItemUpsert[], expectedVersion?: number) =>
+    request<HardwarePlan>(`/api/projects/${projectId}/hardware`, {
+      method: 'PUT',
+      body: JSON.stringify({ items, expected_version: expectedVersion }),
+    }),
   hardwarePlanXlsxUrl: (projectId: number) =>
     `${BASE}/api/projects/${projectId}/reports/hardware-plan.xlsx`,
 
@@ -262,20 +277,34 @@ export const api = {
     wrapped_dek_passphrase: string
     wrapped_dek_recovery_iv: string
     wrapped_dek_recovery: string
+    dek_verifier: string
   }) => request<VaultInfo>('/api/vault', { method: 'POST', body: JSON.stringify(keys) }),
   changeVaultPassphrase: (keys: {
     kdf_salt: string
     kdf_iterations: number
     wrapped_dek_passphrase_iv: string
     wrapped_dek_passphrase: string
+    current_wrapped_dek_passphrase_iv: string
+    current_wrapped_dek_passphrase: string
+    dek_verifier: string
   }) =>
     request<VaultInfo>('/api/vault/passphrase', {
       method: 'PUT',
       body: JSON.stringify(keys),
     }),
+  /** Give a vault from before proofs of key existed its proof (after an unlock). */
+  registerVaultVerifier: (keys: {
+    current_wrapped_dek_passphrase_iv: string
+    current_wrapped_dek_passphrase: string
+    dek_verifier: string
+  }) =>
+    request<VaultInfo>('/api/vault/verifier', {
+      method: 'POST',
+      body: JSON.stringify(keys),
+    }),
   getMoneyBlob: (projectId: number) =>
     request<MoneyBlob>(`/api/projects/${projectId}/financial-data`),
-  putMoneyBlob: (projectId: number, blob: MoneyBlob) =>
+  putMoneyBlob: (projectId: number, blob: MoneyBlobUpdate) =>
     request<MoneyBlob>(`/api/projects/${projectId}/financial-data`, {
       method: 'PUT',
       body: JSON.stringify(blob),
@@ -304,10 +333,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
-  replaceHwAssets: (projectId: number, items: HwAssetInput[]) =>
-    request<HwAsset[]>(`/api/hw/projects/${projectId}/assets`, {
+  /** Save the whole register; rows with an id keep their row. */
+  replaceHwAssets: (projectId: number, items: HwAssetInput[], expectedVersion?: number) =>
+    request<HwRegisterResult<HwAsset>>(`/api/hw/projects/${projectId}/assets`, {
       method: 'PUT',
-      body: JSON.stringify({ items }),
+      body: JSON.stringify({ items, expected_version: expectedVersion }),
     }),
   updateHwAsset: (assetId: number, data: HwAssetInput) =>
     request<HwAsset>(`/api/hw/assets/${assetId}`, {
@@ -324,10 +354,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
-  replaceHwLicenses: (projectId: number, items: HwLicenseInput[]) =>
-    request<HwLicense[]>(`/api/hw/projects/${projectId}/licenses`, {
+  replaceHwLicenses: (projectId: number, items: HwLicenseInput[], expectedVersion?: number) =>
+    request<HwRegisterResult<HwLicense>>(`/api/hw/projects/${projectId}/licenses`, {
       method: 'PUT',
-      body: JSON.stringify({ items }),
+      body: JSON.stringify({ items, expected_version: expectedVersion }),
     }),
   updateHwLicense: (licenseId: number, data: HwLicenseInput) =>
     request<HwLicense>(`/api/hw/licenses/${licenseId}`, {
@@ -339,10 +369,10 @@ export const api = {
 
   getHwAdjustments: (projectId: number) =>
     request<HwAdjustment[]>(`/api/hw/projects/${projectId}/adjustments`),
-  replaceHwAdjustments: (projectId: number, items: HwAdjustment[]) =>
-    request<HwAdjustment[]>(`/api/hw/projects/${projectId}/adjustments`, {
+  replaceHwAdjustments: (projectId: number, items: HwAdjustment[], expectedVersion?: number) =>
+    request<HwRegisterResult<HwAdjustment>>(`/api/hw/projects/${projectId}/adjustments`, {
       method: 'PUT',
-      body: JSON.stringify({ items }),
+      body: JSON.stringify({ items, expected_version: expectedVersion }),
     }),
 
   hwExportXlsxUrl: (projectId: number) => `${BASE}/api/hw/projects/${projectId}/export.xlsx`,

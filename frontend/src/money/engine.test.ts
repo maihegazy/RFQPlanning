@@ -25,6 +25,7 @@ const project: Project = {
   lost_reason: null,
   base_project_id: null,
   is_winning_scenario: false,
+  version: 1,
   created_at: '',
   updated_at: '',
   features: [
@@ -78,6 +79,7 @@ const money: MoneyConfig = {
 const rates: RateConfig = {
   sp_to_hours: 4.0,
   risk_factor_pct: 10.0,
+  version: 1,
   ticket_story_points: { small: 2, medium: 5, large: 10 },
   ticket_quotas: {
     '2026': { small: 20, medium: 30, large: 10 },

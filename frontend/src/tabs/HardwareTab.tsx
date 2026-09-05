@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api } from '../api'
+import { api, isConflict } from '../api'
 import type {
   HardwareBilling,
   HardwareCatalogItem,
   HardwareItemInput,
+  HardwareItemUpsert,
+  HardwarePlan,
   Meta,
   Project,
 } from '../types'
 import { Button, Card, EmptyState, ErrorBanner, Input, Select, Spinner } from '../components/ui'
+import { ConflictBanner } from '../components/ConflictBanner'
 import HardwareCatalogModal from '../components/HardwareCatalogModal'
 import HardwareWizardModal from '../components/HardwareWizardModal'
 import { downloadBlob } from '../download'
@@ -46,12 +49,37 @@ export default function HardwareTab({ project, meta }: { project: Project; meta:
   const [showCatalog, setShowCatalog] = useState(false)
   const [showWizard, setShowWizard] = useState(false)
   const [warnings, setWarnings] = useState<string[]>([])
+  /* The project version the plan was loaded at; every save is built from it. */
+  const [version, setVersion] = useState<number | undefined>(undefined)
   const [error, setError] = useState('')
+  const [conflict, setConflict] = useState('')
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<number | null>(null)
   /* Switching scenarios while a plan is still loading must not let the slower
    * response land on the newer project. */
   const loadSeq = useRef(0)
+
+  const applyPlan = useCallback((plan: HardwarePlan) => {
+    setWarnings(plan.warnings ?? [])
+    setVersion(plan.version)
+    setRows(
+      plan.items.map((item) => ({
+        key: nextKey++,
+        id: item.id,
+        catalog_item_id: item.catalog_item_id,
+        name: item.name,
+        aspice: item.aspice,
+        billing: item.billing,
+        unit_cost: item.unit_cost,
+        qty: item.qty,
+        years: item.years,
+        supplier_name: item.supplier_name,
+        supplier_email: item.supplier_email,
+        dirty: false,
+      })),
+    )
+    setDeletedIds([])
+  }, [])
 
   const reload = useCallback(() => {
     const seq = loadSeq.current + 1
@@ -59,30 +87,12 @@ export default function HardwareTab({ project, meta }: { project: Project; meta:
     api
       .getHardwarePlan(project.id)
       .then((plan) => {
-        if (seq !== loadSeq.current) return
-        setWarnings(plan.warnings ?? [])
-        setRows(
-          plan.items.map((item) => ({
-            key: nextKey++,
-            id: item.id,
-            catalog_item_id: item.catalog_item_id,
-            name: item.name,
-            aspice: item.aspice,
-            billing: item.billing,
-            unit_cost: item.unit_cost,
-            qty: item.qty,
-            years: item.years,
-            supplier_name: item.supplier_name,
-            supplier_email: item.supplier_email,
-            dirty: false,
-          })),
-        )
-        setDeletedIds([])
+        if (seq === loadSeq.current) applyPlan(plan)
       })
       .catch((e) => {
         if (seq === loadSeq.current) setError(e.message)
       })
-  }, [project.id])
+  }, [applyPlan, project.id])
 
   const reloadCatalog = useCallback(() => {
     api
@@ -96,6 +106,7 @@ export default function HardwareTab({ project, meta }: { project: Project; meta:
     setRows(null)
     setDeletedIds([])
     setError('')
+    setConflict('')
     setSavedAt(null)
     reload()
     reloadCatalog()
@@ -174,33 +185,28 @@ export default function HardwareTab({ project, meta }: { project: Project; meta:
     if (!rows) return
     setSaving(true)
     setError('')
+    setConflict('')
     try {
-      for (const id of deletedIds) {
-        await api.deleteHardwareItem(id)
-      }
-      for (const row of rows) {
-        if (!row.dirty) continue
-        const payload: HardwareItemInput = {
-          catalog_item_id: row.catalog_item_id,
-          name: row.name.trim() || 'Hardware item',
-          aspice: row.aspice,
-          billing: row.billing,
-          unit_cost: row.unit_cost,
-          qty: row.qty,
-          years: row.years,
-          supplier_name: row.supplier_name,
-          supplier_email: row.supplier_email,
-        }
-        if (row.id === null) {
-          await api.createHardwareItem(project.id, payload)
-        } else {
-          await api.updateHardwareItem(row.id, payload)
-        }
-      }
+      // One request for the whole plan: rows keep their ids, removed rows go,
+      // and a rejected row leaves the stored plan exactly as it was.
+      const items: HardwareItemUpsert[] = rows.map((row) => ({
+        id: row.id,
+        catalog_item_id: row.catalog_item_id,
+        name: row.name.trim() || 'Hardware item',
+        aspice: row.aspice,
+        billing: row.billing,
+        unit_cost: row.unit_cost,
+        qty: row.qty,
+        years: row.years,
+        supplier_name: row.supplier_name,
+        supplier_email: row.supplier_email,
+      }))
+      const plan = await api.replaceHardwarePlan(project.id, items, version)
+      applyPlan(plan)
       setSavedAt(Date.now())
-      reload()
     } catch (e) {
-      setError((e as Error).message)
+      if (isConflict(e)) setConflict(e.message)
+      else setError((e as Error).message)
     } finally {
       setSaving(false)
     }
@@ -294,6 +300,11 @@ export default function HardwareTab({ project, meta }: { project: Project; meta:
         {error && (
           <div className="mb-4">
             <ErrorBanner message={error} />
+          </div>
+        )}
+        {conflict && (
+          <div className="mb-4">
+            <ConflictBanner message={conflict} onReload={reload} />
           </div>
         )}
         {warnings.length > 0 && (

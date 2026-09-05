@@ -64,6 +64,7 @@ function project(id: number, name: string): Project {
     lost_reason: null,
     base_project_id: null,
     is_winning_scenario: false,
+    version: 1,
     created_at: '',
     updated_at: '',
     features: [],
@@ -182,6 +183,7 @@ describe('known frontend regressions', () => {
       per_year: {},
       grand_total: 0,
       warnings: ['Old rig is planned for 2030, outside the project years 2026-2026'],
+      version: 1,
     })
     apiMock.listHardwareCatalog.mockResolvedValue([])
 

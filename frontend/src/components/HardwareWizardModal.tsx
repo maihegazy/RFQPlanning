@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
-import type { HardwareCatalogItem, HardwareItemInput, Project } from '../types'
+import type { HardwareCatalogItem, HardwareItemInput, HardwareItemUpsert, Project } from '../types'
 import { Button, ErrorBanner, Input, Label, Modal, Select, Spinner } from './ui'
 import { formatEuro } from '../utils'
 import {
@@ -132,11 +132,12 @@ export default function HardwareWizardModal({
     setBusy(true)
     setError('')
     try {
-      if (replace && existingCount > 0) {
-        const plan = await api.getHardwarePlan(project.id)
-        for (const item of plan.items) await api.deleteHardwareItem(item.id)
-      }
-      for (const row of rows) await api.createHardwareItem(project.id, row)
+      // One whole-plan save: replacing sends only the generated rows, adding
+      // keeps the stored rows (by id) in front of them. Either way a failure
+      // midway can no longer leave a half-deleted plan behind.
+      const current = await api.getHardwarePlan(project.id)
+      const kept: HardwareItemUpsert[] = replace ? [] : current.items
+      await api.replaceHardwarePlan(project.id, [...kept, ...rows], current.version)
       onGenerated()
       onClose()
     } catch (e) {

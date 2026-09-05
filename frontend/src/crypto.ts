@@ -44,6 +44,27 @@ async function importAesKey(raw: Uint8Array): Promise<CryptoKey> {
   ])
 }
 
+/** A session key from the raw DEK bytes (non-extractable, like every session key). */
+export function keyFromRaw(dekRaw: Uint8Array): Promise<CryptoKey> {
+  return importAesKey(dekRaw)
+}
+
+const VERIFIER_TAG = new TextEncoder().encode('rfq-planner vault verifier v1')
+
+/**
+ * The proof of key the server keeps: SHA-256 over a fixed tag and the raw DEK.
+ *
+ * Only someone who unwrapped the DEK (with the passphrase or the recovery key)
+ * can compute it, so the server can demand it before replacing the passphrase
+ * copy of the key. The digest reveals nothing about the 256-bit random DEK.
+ */
+export async function dekVerifier(dekRaw: Uint8Array): Promise<string> {
+  const input = new Uint8Array(VERIFIER_TAG.length + dekRaw.length)
+  input.set(VERIFIER_TAG)
+  input.set(dekRaw, VERIFIER_TAG.length)
+  return toBase64(await crypto.subtle.digest('SHA-256', input as BufferSource))
+}
+
 /** Derive the passphrase key (KEK). */
 export async function deriveKek(
   passphrase: string,
@@ -97,6 +118,7 @@ export interface VaultSetup {
   wrappedDekRecovery: WrappedKey
   recoveryKeyB64: string // shown/downloaded ONCE, never sent to the server
   dek: CryptoKey
+  dekVerifier: string
 }
 
 /** Create a brand-new vault: DEK + recovery key, both wrapped. */
@@ -115,6 +137,7 @@ export async function createVault(passphrase: string): Promise<VaultSetup> {
     wrappedDekRecovery: await aesEncrypt(recoveryKey, dekRaw),
     recoveryKeyB64: toBase64(recoveryRaw),
     dek: await importAesKey(dekRaw),
+    dekVerifier: await dekVerifier(dekRaw),
   }
 }
 

@@ -47,6 +47,9 @@ export interface ProjectSummary {
   lost_reason: string | null
   base_project_id: number | null
   is_winning_scenario: boolean
+  /** Optimistic-concurrency token: moves with every write to the project or
+   *  anything inside it. Send it back as `expected_version` on writes. */
+  version: number
   created_at: string
   updated_at: string
 }
@@ -61,6 +64,13 @@ export interface RateConfig {
   risk_factor_pct: number
   ticket_story_points: Record<string, number>
   ticket_quotas: Record<string, Record<string, number>>
+  /** The project's version after the read or write. */
+  version: number
+}
+
+/** A write that refuses to overwrite a newer save (409) when the version moved. */
+export interface Versioned {
+  expected_version?: number
 }
 
 export interface PivotTable {
@@ -81,12 +91,18 @@ export interface VaultInfo {
   wrapped_dek_passphrase: string
   wrapped_dek_recovery_iv: string
   wrapped_dek_recovery: string
+  /** False on a vault from before proofs of key existed, until its first unlock. */
+  has_verifier: boolean
 }
 
 export interface MoneyBlob {
   encrypted_money: string | null
   money_iv: string | null
+  /** The project's version after the read or write. */
+  version: number
 }
+
+export type MoneyBlobUpdate = Pick<MoneyBlob, 'encrypted_money' | 'money_iv'> & Versioned
 
 export interface LegacyMoney {
   hourly_rates: Record<string, number>
@@ -165,6 +181,11 @@ export interface HardwareItemInput {
   supplier_email: string
 }
 
+/** A row of a whole-plan save: an id keeps the stored row, none creates one. */
+export interface HardwareItemUpsert extends HardwareItemInput {
+  id?: number | null
+}
+
 export interface HardwareItem extends HardwareItemInput {
   id: number
   project_id: number
@@ -177,6 +198,8 @@ export interface HardwarePlan {
   grand_total: number
   /** Rows planned for a year the project no longer covers. */
   warnings: string[]
+  /** The project's version after the read or write. */
+  version: number
 }
 
 export interface PortfolioCapacity {
@@ -214,6 +237,8 @@ export interface HwProjectInput {
 
 export interface HwProject extends HwProjectInput {
   id: number
+  /** Optimistic-concurrency token, as on `ProjectSummary`. */
+  version: number
   created_at: string
   updated_at: string
 }
@@ -235,6 +260,9 @@ export interface HwProjectRollup extends HwProject {
 }
 
 export interface HwAssetInput {
+  /** Set on rows read from the register; a whole-register save keeps such a
+   *  row (id and created_at survive) and creates rows without one. */
+  id?: number | null
   asset_tag: string
   company: string
   name: string
@@ -267,6 +295,7 @@ export interface HwAsset extends HwAssetInput {
 }
 
 export interface HwLicenseInput {
+  id?: number | null
   license_tag: string
   company: string
   name: string
@@ -293,6 +322,12 @@ export interface HwLicense extends HwLicenseInput {
   per_year: Record<string, number>
   total: number
   uncounted_reason: string | null
+}
+
+/** What a whole-register save returns: the stored rows and the new version. */
+export interface HwRegisterResult<T> {
+  version: number
+  items: T[]
 }
 
 /** "Special Cases Budget": a manual delta added on top of a year's computed cost. */

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Download, Pencil, Plus, Search, TriangleAlert, Upload } from 'lucide-react'
-import { api } from '../api'
+import { api, isConflict } from '../api'
 import type {
   HardwareBilling,
   HardwareCatalogItem,
@@ -39,6 +39,7 @@ import {
   Modal,
   Spinner,
 } from '../components/ui'
+import { ConflictBanner } from '../components/ConflictBanner'
 import HwAssetTable from '../components/HwAssetTable'
 import HwLicenseTable from '../components/HwLicenseTable'
 import HwImportDialog from '../components/HwImportDialog'
@@ -95,14 +96,15 @@ function licenseFromCatalog(item: HardwareCatalogItem): HwLicenseInput {
 }
 
 /** The register is edited and saved as `…Input` rows; the server-computed
- *  fields are re-read from the save response. */
+ *  fields are re-read from the save response. The id stays: a save keeps the
+ *  stored row for it instead of recreating every row. */
 function toAssetInput(asset: HwAsset): HwAssetInput {
-  const { id, hw_project_id, per_year, total, ...input } = asset
+  const { hw_project_id, per_year, total, uncounted_reason, ...input } = asset
   return input
 }
 
 function toLicenseInput(license: HwLicense): HwLicenseInput {
-  const { id, hw_project_id, per_year, total, ...input } = license
+  const { hw_project_id, per_year, total, uncounted_reason, ...input } = license
   return input
 }
 
@@ -796,6 +798,8 @@ export default function HwProjectPage() {
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  /* A 409: someone else saved first. The edits stay on screen until reloaded. */
+  const [conflict, setConflict] = useState('')
   const [saving, setSaving] = useState<'assets' | 'licenses' | 'adjustments' | null>(null)
   /* A save confirmation belongs to the tab it was earned on, so switching tabs
    * never shows "Saved 3 assets." next to the licenses grid. */
@@ -919,6 +923,16 @@ export default function HwProjectPage() {
     applySummary(next, keepAdjustmentEdits)
   }
 
+  /** Every save carries the version it was built from and learns the new one. */
+  const version = project?.version
+  const bumpVersion = (next: number) =>
+    setProject((prev) => (prev === null ? prev : { ...prev, version: next }))
+
+  const failSave = (e: unknown) => {
+    if (isConflict(e)) setConflict(e.message)
+    else setError((e as Error).message)
+  }
+
   const saveAssets = async () => {
     const plan = planSave(assets, isBlankAsset)
     if (plan.unnamed.length > 0) {
@@ -931,15 +945,17 @@ export default function HwProjectPage() {
     }
     setSaving('assets')
     setError('')
+    setConflict('')
     try {
-      const saved = await api.replaceHwAssets(id, plan.rows)
-      const rows = saved.map(toAssetInput)
+      const saved = await api.replaceHwAssets(id, plan.rows, version)
+      bumpVersion(saved.version)
+      const rows = saved.items.map(toAssetInput)
       setAssets(rows)
       setAssetBaseline(JSON.stringify(rows))
       await refreshSummary(adjustmentsDirty)
       setNotice({ scope: 'assets', text: `Saved ${plural(rows.length, 'asset')}.` })
     } catch (e) {
-      setError((e as Error).message)
+      failSave(e)
     } finally {
       setSaving(null)
     }
@@ -957,15 +973,17 @@ export default function HwProjectPage() {
     }
     setSaving('licenses')
     setError('')
+    setConflict('')
     try {
-      const saved = await api.replaceHwLicenses(id, plan.rows)
-      const rows = saved.map(toLicenseInput)
+      const saved = await api.replaceHwLicenses(id, plan.rows, version)
+      bumpVersion(saved.version)
+      const rows = saved.items.map(toLicenseInput)
       setLicenses(rows)
       setLicenseBaseline(JSON.stringify(rows))
       await refreshSummary(adjustmentsDirty)
       setNotice({ scope: 'licenses', text: `Saved ${plural(rows.length, 'license')}.` })
     } catch (e) {
-      setError((e as Error).message)
+      failSave(e)
     } finally {
       setSaving(null)
     }
@@ -974,14 +992,16 @@ export default function HwProjectPage() {
   const saveAdjustments = async () => {
     setSaving('adjustments')
     setError('')
+    setConflict('')
     try {
-      await api.replaceHwAdjustments(id, adjustmentList(adjustments))
+      const saved = await api.replaceHwAdjustments(id, adjustmentList(adjustments), version)
+      bumpVersion(saved.version)
       // The server folds the adjustments into the actual columns, so the whole
       // summary has to come back rather than being patched in place.
       await refreshSummary(false)
       setNotice({ scope: 'summary', text: 'Special cases saved.' })
     } catch (e) {
-      setError((e as Error).message)
+      failSave(e)
     } finally {
       setSaving(null)
     }
@@ -1115,6 +1135,17 @@ export default function HwProjectPage() {
       {error !== '' && (
         <div className="mb-4">
           <ErrorBanner message={error} />
+        </div>
+      )}
+      {conflict !== '' && (
+        <div className="mb-4">
+          <ConflictBanner
+            message={conflict}
+            onReload={() => {
+              setConflict('')
+              load()
+            }}
+          />
         </div>
       )}
 

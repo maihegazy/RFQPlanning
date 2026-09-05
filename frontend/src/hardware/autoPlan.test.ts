@@ -37,6 +37,7 @@ function project(roles: Role[]): Project {
     lost_reason: null,
     base_project_id: null,
     is_winning_scenario: false,
+    version: 1,
     created_at: '',
     updated_at: '',
     features: [{ id: 1, project_id: 1, name: 'F', roles }],

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api } from '../api'
+import { api, isConflict } from '../api'
 import type { Meta, Project, RateConfig } from '../types'
 import { Button, Card, ErrorBanner, Input, Label, Spinner } from '../components/ui'
+import { ConflictBanner } from '../components/ConflictBanner'
 import { projectYears } from '../utils'
 import { useVault } from '../vault/VaultContext'
 import { VaultPrompt } from '../vault/VaultGate'
@@ -14,17 +15,21 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
   const [money, setMoney] = useState<MoneyConfig | null>(null)
   const [legacyBanner, setLegacyBanner] = useState(false)
   const [error, setError] = useState('')
+  const [conflict, setConflict] = useState('')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   /* Switching scenarios while a load is in flight must not let the slower
    * response overwrite the newer project's figures. */
   const moneySeq = useRef(0)
+  /* Reloading after a conflict re-runs both loads. */
+  const [reloadTick, setReloadTick] = useState(0)
 
   useEffect(() => {
     let cancelled = false
     setRates(null)
     setSaved(false)
     setError('')
+    setConflict('')
     api
       .getRates(project.id)
       .then((next) => {
@@ -36,7 +41,7 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
     return () => {
       cancelled = true
     }
-  }, [project.id])
+  }, [project.id, reloadTick])
 
   const loadMoney = useCallback(async () => {
     if (vault.status !== 'unlocked') return
@@ -87,7 +92,7 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
     setMoney(null)
     setLegacyBanner(false)
     loadMoney()
-  }, [loadMoney])
+  }, [loadMoney, reloadTick])
 
   if (error && !rates) return <ErrorBanner message={error} />
   if (!rates) return <Spinner />
@@ -126,6 +131,7 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
     }
     setSaving(true)
     setError('')
+    setConflict('')
     try {
       const quotas: Record<string, Record<string, number>> = {}
       for (const year of years) {
@@ -134,15 +140,23 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
           quotas[String(year)][size] = quotaFor(year, size)
         }
       }
-      const updated = await api.updateRates(project.id, { ...rates, ticket_quotas: quotas })
+      // Both writes carry the version they were built from: a save that would
+      // overwrite someone else's is refused with a 409 and shown as a conflict.
+      const updated = await api.updateRates(project.id, {
+        ...rates,
+        ticket_quotas: quotas,
+        expected_version: rates.version,
+      })
       setRates(updated)
 
       if (money && vault.status === 'unlocked') {
         const blob = await vault.encrypt(money)
-        await api.putMoneyBlob(project.id, {
+        const stored = await api.putMoneyBlob(project.id, {
           encrypted_money: blob.ciphertext,
           money_iv: blob.iv,
+          expected_version: updated.version,
         })
+        setRates({ ...updated, version: stored.version })
         if (legacyBanner) {
           await api.purgeLegacyMoney(project.id)
           setLegacyBanner(false)
@@ -150,7 +164,8 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
       }
       setSaved(true)
     } catch (e) {
-      setError((e as Error).message)
+      if (isConflict(e)) setConflict(e.message)
+      else setError((e as Error).message)
     } finally {
       setSaving(false)
     }
@@ -161,6 +176,9 @@ export default function BudgetTab({ project, meta }: { project: Project; meta: M
   return (
     <div className="space-y-6">
       {error && <ErrorBanner message={error} />}
+      {conflict && (
+        <ConflictBanner message={conflict} onReload={() => setReloadTick((n) => n + 1)} />
+      )}
 
       {legacyBanner && (
         <div className="rounded-lg border border-indigo-800 bg-indigo-950/50 px-4 py-3 text-sm text-indigo-200">
