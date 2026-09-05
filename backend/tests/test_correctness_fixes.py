@@ -760,3 +760,14 @@ def test_expiring_list_has_a_lower_bound(client):
     assert [row["name"] for row in summary["expiring"]] == ["Recent", "Soon"]
     # The counters still know about the old one
     assert summary["risk"]["expired"] == 2
+
+
+def test_year_cost_ignores_dates_outside_the_window():
+    """A typo year neither accrues for two centuries nor lands in a real year."""
+    assert dep.year_cost(2025, "Leasing", date(225, 7, 2), date(2028, 7, 2), 7157.35) == 0.0
+    assert dep.year_cost(2026, "Leasing", date(2025, 7, 2), date(2205, 7, 2), 7157.35) == 0.0
+    assert dep.year_cost(225, "Purchase", date(225, 7, 2), None, 9877.0) == 0.0
+    # ... while the edges of the window are still data
+    assert dep.year_cost(2100, "Purchase", date(2100, 12, 31), None, 9877.0) == 9877.0
+    assert dep.year_cost(1990, "Leasing", date(1990, 1, 1), date(1992, 12, 31), 3600.0) == \
+        pytest.approx(1200.0)

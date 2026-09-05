@@ -137,6 +137,10 @@ def year_cost(year: int, kind: str, purchase_date: datetime.date | None,
         end_date = _as_date(end_date)
         if purchase_date is None or end_date is None:
             return 0.0
+        # A date outside the window is a typo (see `uncounted_reason`): the row is
+        # flagged instead of accruing for two hundred years.
+        if not _in_window(purchase_date) or not _in_window(end_date):
+            return 0.0
         start = max(purchase_date, datetime.date(year, 1, 1))
         end = min(end_date, datetime.date(year, 12, 31))
         if start > end:
@@ -147,7 +151,9 @@ def year_cost(year: int, kind: str, purchase_date: datetime.date | None,
         return total / HW_LEASING_MONTHS * months
 
     if t == PURCHASE:
-        return total if purchase_date is not None and purchase_date.year == year else 0.0
+        if purchase_date is None or not _in_window(purchase_date):
+            return 0.0
+        return total if purchase_date.year == year else 0.0
 
     return 0.0  # Planned Purchase and Not Purchased never hit the actual budget.
 
