@@ -16,6 +16,7 @@ from .. import models, schemas
 from ..database import get_db
 from ..services.calculations import hardware_item_years
 from ..services.http import attachment_disposition
+from ..services.loading import hardware_plan
 from ..services.versioning import require_version
 from .projects import get_project_or_404
 
@@ -175,11 +176,23 @@ def delete_catalog_item(item_id: int, db: Session = Depends(get_db)):
 # Per-project hardware plan
 # ---------------------------------------------------------------------------
 
+def get_project_with_plan_or_404(project_id: int, db: Session) -> models.Project:
+    """The project with its plan rows and their catalog entries in three queries."""
+    project = (
+        db.query(models.Project)
+        .options(hardware_plan())
+        .filter(models.Project.id == project_id)
+        .one_or_none()
+    )
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
+
 @router.get("/projects/{project_id}/hardware",
             response_model=schemas.HardwarePlanOut)
 def get_hardware_plan(project_id: int, db: Session = Depends(get_db)):
-    project = get_project_or_404(project_id, db)
-    return build_plan(project)
+    return build_plan(get_project_with_plan_or_404(project_id, db))
 
 
 @router.post("/projects/{project_id}/hardware", status_code=201,

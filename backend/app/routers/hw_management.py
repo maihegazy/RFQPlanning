@@ -25,6 +25,7 @@ from ..config import (
 from ..database import get_db
 from ..services import hw_depreciation, hw_excel
 from ..services.http import attachment_disposition
+from ..services.loading import project_registers
 from ..services.versioning import require_version
 from .hardware import XLSX_MEDIA_TYPE
 
@@ -39,7 +40,12 @@ LICENSE_FIELDS = tuple(schemas.HwLicenseInput.model_fields)
 # ---------------------------------------------------------------------------
 
 def get_hw_project_or_404(project_id: int, db: Session) -> models.HwProject:
-    project = db.get(models.HwProject, project_id)
+    project = (
+        db.query(models.HwProject)
+        .options(*project_registers())
+        .filter(models.HwProject.id == project_id)
+        .one_or_none()
+    )
     if project is None:
         raise HTTPException(status_code=404, detail="Hardware project not found")
     return project
@@ -142,8 +148,11 @@ def project_summary(project: models.HwProject, today: date) -> dict:
     return summary
 
 
-def project_rollup(project: models.HwProject, today: date) -> dict:
-    summary = summarize_project(project, today)
+def project_rollup(project: models.HwProject, today: date,
+                   summary: dict | None = None) -> dict:
+    """The list-row view of a project; pass `summary` when it is already computed."""
+    if summary is None:
+        summary = summarize_project(project, today)
     risk = summary["risk"]
     data = schemas.HwProjectOut.model_validate(project).model_dump()
     data.update(
@@ -211,6 +220,7 @@ def get_hw_overview(db: Session = Depends(get_db)):
     today = date.today()
     projects = (
         db.query(models.HwProject)
+        .options(*project_registers())
         .order_by(models.HwProject.name, models.HwProject.id)
         .all()
     )
@@ -235,6 +245,7 @@ def list_hw_projects(db: Session = Depends(get_db)):
     today = date.today()
     projects = (
         db.query(models.HwProject)
+        .options(*project_registers())
         .order_by(models.HwProject.name, models.HwProject.id)
         .all()
     )

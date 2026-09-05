@@ -12,6 +12,7 @@ from .. import models
 from ..config import LOCATIONS
 from ..database import get_db
 from ..services import calculations
+from ..services.loading import project_tree
 
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
@@ -25,7 +26,11 @@ def capacity(statuses: str | None = None, db: Session = Depends(get_db)):
     so a page whose user deselected every filter shows nothing rather than all.
     Scenario children are excluded — only base projects count.
     """
-    query = db.query(models.Project).filter(models.Project.base_project_id.is_(None))
+    query = (
+        db.query(models.Project)
+        .options(project_tree())
+        .filter(models.Project.base_project_id.is_(None))
+    )
     if statuses is not None:
         wanted = [s.strip() for s in statuses.split(",") if s.strip()]
         if not wanted:

@@ -9,6 +9,7 @@ from .. import models, schemas
 from ..config import TICKET_SIZES
 from ..database import get_db
 from ..services import calculations, cloning
+from ..services.loading import project_tree
 from ..services.rate_config import get_rate_config
 from ..templates import resolve_template
 
@@ -17,6 +18,19 @@ router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 def get_project_or_404(project_id: int, db: Session) -> models.Project:
     project = db.get(models.Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
+
+def get_project_tree_or_404(project_id: int, db: Session) -> models.Project:
+    """The project with its features, roles and periods loaded in four queries."""
+    project = (
+        db.query(models.Project)
+        .options(project_tree())
+        .filter(models.Project.id == project_id)
+        .one_or_none()
+    )
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
     return project
@@ -81,7 +95,7 @@ def create_project(data: schemas.ProjectCreate, db: Session = Depends(get_db)):
 
 @router.get("/{project_id}", response_model=schemas.ProjectOut)
 def get_project(project_id: int, db: Session = Depends(get_db)):
-    return get_project_or_404(project_id, db)
+    return get_project_tree_or_404(project_id, db)
 
 
 @router.put("/{project_id}", response_model=schemas.ProjectOut)
