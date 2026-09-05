@@ -7,7 +7,13 @@ import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
 export default defineConfig([
-  globalIgnores(['dist', 'node_modules', 'src/money/__fixtures__', 'playwright-report', 'test-results']),
+  globalIgnores([
+    'dist',
+    'node_modules',
+    'src/money/__fixtures__',
+    'playwright-report',
+    'test-results',
+  ]),
   {
     files: ['**/*.{js,ts,tsx}'],
     extends: [js.configs.recommended, tseslint.configs.recommended, prettier],
