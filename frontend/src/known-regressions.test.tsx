@@ -34,12 +34,16 @@ const vaultMock = vi.hoisted(() => ({
   lock: vi.fn(),
   encrypt: vi.fn(),
   decrypt: vi.fn(),
+  dialogOpen: false,
+  openDialog: vi.fn(),
+  closeDialog: vi.fn(),
 }))
 
 vi.mock('./vault/VaultContext', () => ({ useVault: () => vaultMock }))
 vi.mock('./vault/VaultGate', () => ({
   VaultStatusButton: () => null,
   VaultDialog: () => null,
+  VaultDialogHost: () => null,
 }))
 
 const meta: Meta = {

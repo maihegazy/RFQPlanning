@@ -25,3 +25,5 @@ dist/
 frontend/.eslintcache
 .coverage
 tsconfig.tsbuildinfo
+frontend/playwright-report/
+frontend/test-results/

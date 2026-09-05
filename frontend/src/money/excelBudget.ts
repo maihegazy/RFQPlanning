@@ -438,13 +438,14 @@ function writeHardwareSheet(wb: ExcelJS.Workbook, project: Project, hardware: Ha
 }
 
 /** Build the workbook and trigger a browser download. */
-export async function downloadBudgetWorkbook(
+/** The budget workbook as an ExcelJS object, for the download and for tests. */
+export async function buildBudgetWorkbook(
   project: Project,
   money: MoneyConfig,
   rates: RateConfig,
   plan: BudgetPlan,
   hardware?: HardwarePlan | null,
-): Promise<void> {
+): Promise<ExcelJS.Workbook> {
   const { Workbook } = await import('exceljs') // lazy: only loaded on export
   const wb = new Workbook()
   writeConfigSheet(wb, project, money, rates)
@@ -455,7 +456,17 @@ export async function downloadBudgetWorkbook(
   if (hardware && hardware.items.length > 0) {
     writeHardwareSheet(wb, project, hardware)
   }
+  return wb
+}
 
+export async function downloadBudgetWorkbook(
+  project: Project,
+  money: MoneyConfig,
+  rates: RateConfig,
+  plan: BudgetPlan,
+  hardware?: HardwarePlan | null,
+): Promise<void> {
+  const wb = await buildBudgetWorkbook(project, money, rates, plan, hardware)
   const buffer = await wb.xlsx.writeBuffer()
   downloadBlob(
     new Blob([buffer], {

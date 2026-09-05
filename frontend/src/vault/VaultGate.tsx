@@ -3,10 +3,19 @@ import { Button, ErrorBanner, Input, Label, Modal } from '../components/ui'
 import { downloadBlob } from '../download'
 import { useVault } from './VaultContext'
 
+/**
+ * Renders the setup/unlock dialog whenever the vault context says it is open.
+ * Mounted once in the app layout, outside every page and section, so the
+ * dialog survives the re-render that unlocking causes wherever it was opened.
+ */
+export function VaultDialogHost() {
+  const { dialogOpen, closeDialog } = useVault()
+  return dialogOpen ? <VaultDialog onClose={closeDialog} /> : null
+}
+
 /** Header pill showing vault state with lock/unlock actions. */
 export function VaultStatusButton() {
-  const { status, lock } = useVault()
-  const [showDialog, setShowDialog] = useState(false)
+  const { status, lock, openDialog } = useVault()
   const [showChange, setShowChange] = useState(false)
 
   if (status === 'loading') return null
@@ -33,14 +42,13 @@ export function VaultStatusButton() {
         </span>
       ) : (
         <button
-          onClick={() => setShowDialog(true)}
+          onClick={openDialog}
           className="flex items-center gap-1.5 rounded-lg border border-amber-800 bg-amber-950/40 px-3 py-1.5 text-sm text-amber-300 hover:bg-amber-900/40"
           title="Financial data is locked. Click to unlock."
         >
           🔒 {status === 'no-vault' ? 'Set up financial vault' : 'Financial data locked'}
         </button>
       )}
-      {showDialog && <VaultDialog onClose={() => setShowDialog(false)} />}
       {showChange && <ChangePassphraseDialog onClose={() => setShowChange(false)} />}
     </>
   )
@@ -180,8 +188,7 @@ export function ChangePassphraseDialog({ onClose }: { onClose: () => void }) {
 
 /** Inline prompt used by money sections when the vault is locked. */
 export function VaultPrompt({ children }: { children?: ReactNode }) {
-  const { status } = useVault()
-  const [showDialog, setShowDialog] = useState(false)
+  const { status, openDialog } = useVault()
 
   return (
     <div className="rounded-lg border border-dashed border-amber-800/60 bg-amber-950/20 px-6 py-8 text-center">
@@ -190,11 +197,10 @@ export function VaultPrompt({ children }: { children?: ReactNode }) {
         {children ?? 'Financial data is end-to-end encrypted. Unlock it to view and edit it.'}
       </p>
       <div className="mt-4">
-        <Button onClick={() => setShowDialog(true)}>
+        <Button onClick={openDialog}>
           {status === 'no-vault' ? 'Set Up Financial Vault' : 'Unlock Financial Data'}
         </Button>
       </div>
-      {showDialog && <VaultDialog onClose={() => setShowDialog(false)} />}
     </div>
   )
 }
@@ -274,6 +280,7 @@ function SetupWizard({ onClose, onUnlocked }: { onClose: () => void; onUnlocked?
             <Label>Passphrase (min. 8 characters)</Label>
             <Input
               type="password"
+              aria-label="Passphrase"
               value={passphrase}
               onChange={(e) => setPassphrase(e.target.value)}
               autoFocus
@@ -281,7 +288,12 @@ function SetupWizard({ onClose, onUnlocked }: { onClose: () => void; onUnlocked?
           </div>
           <div>
             <Label>Confirm passphrase</Label>
-            <Input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+            <Input
+              type="password"
+              aria-label="Confirm passphrase"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+            />
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={onClose}>
@@ -376,6 +388,7 @@ function UnlockDialog({ onClose, onUnlocked }: { onClose: () => void; onUnlocked
           <Label>Passphrase</Label>
           <Input
             type="password"
+            aria-label="Vault passphrase"
             value={passphrase}
             onChange={(e) => setPassphrase(e.target.value)}
             autoFocus

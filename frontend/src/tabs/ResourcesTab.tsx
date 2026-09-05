@@ -252,6 +252,7 @@ function FeatureNameModal({
         className="space-y-4"
       >
         <Input
+          aria-label="Feature name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Feature name"

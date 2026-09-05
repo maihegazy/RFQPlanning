@@ -1,11 +1,16 @@
-"""Shared backend API-test setup."""
+"""Shared backend API-test setup.
+
+The suite runs against whatever `TEST_DATABASE_URL` names (a SQLite file by
+default, PostgreSQL in CI), so engine-specific behaviour is covered by the
+same tests rather than by a separate, smaller suite.
+"""
 
 import os
 import sys
 
 import pytest
 
-os.environ["DATABASE_URL"] = "sqlite:///./test_rfq.db"
+os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL", "sqlite:///./test_rfq.db")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from fastapi.testclient import TestClient  # noqa: E402
@@ -21,5 +26,6 @@ def client():
     with TestClient(app) as test_client:
         yield test_client
     Base.metadata.drop_all(bind=engine)
-    if os.path.exists("./test_rfq.db"):
+    engine.dispose()
+    if engine.dialect.name == "sqlite" and os.path.exists("./test_rfq.db"):
         os.remove("./test_rfq.db")

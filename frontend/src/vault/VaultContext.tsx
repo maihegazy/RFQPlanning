@@ -40,6 +40,14 @@ interface VaultContextValue {
   lock: () => void
   encrypt: (obj: unknown) => Promise<WrappedKey>
   decrypt: <T>(blob: WrappedKey) => Promise<T>
+  /**
+   * The setup/unlock dialog is rendered by `VaultDialogHost` at the app root,
+   * so the prompt that opened it can disappear (a section unlocking) without
+   * taking the dialog, and its one-time recovery step, down with it.
+   */
+  dialogOpen: boolean
+  openDialog: () => void
+  closeDialog: () => void
 }
 
 const VaultContext = createContext<VaultContextValue | null>(null)
@@ -48,6 +56,9 @@ export function VaultProvider({ children }: { children: ReactNode }) {
   const [info, setInfo] = useState<VaultInfo | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [dek, setDek] = useState<CryptoKey | null>(null)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const openDialog = useCallback(() => setDialogOpen(true), [])
+  const closeDialog = useCallback(() => setDialogOpen(false), [])
 
   useEffect(() => {
     api
@@ -201,8 +212,32 @@ export function VaultProvider({ children }: { children: ReactNode }) {
   )
 
   const value = useMemo(
-    () => ({ status, setup, unlock, unlockWithFile, changePassphrase, lock, encrypt, decrypt }),
-    [status, setup, unlock, unlockWithFile, changePassphrase, lock, encrypt, decrypt],
+    () => ({
+      status,
+      setup,
+      unlock,
+      unlockWithFile,
+      changePassphrase,
+      lock,
+      encrypt,
+      decrypt,
+      dialogOpen,
+      openDialog,
+      closeDialog,
+    }),
+    [
+      status,
+      setup,
+      unlock,
+      unlockWithFile,
+      changePassphrase,
+      lock,
+      encrypt,
+      decrypt,
+      dialogOpen,
+      openDialog,
+      closeDialog,
+    ],
   )
 
   return <VaultContext.Provider value={value}>{children}</VaultContext.Provider>

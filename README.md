@@ -124,13 +124,26 @@ cd ../frontend
 npm ci
 npm run lint
 npm run format:check   # or `npm run format` to apply Prettier
-npm test
+npm test               # engine, helper and component tests (Testing Library + jsdom)
 npm run typecheck
 npm run build
 ```
 
-The same checks, plus a build of both Docker images and a smoke test of the
-Compose stack, run in GitHub Actions for pull requests and pushes to `main`.
+The backend suite runs against whatever `TEST_DATABASE_URL` names (a SQLite
+file by default); CI runs it twice, on SQLite and on PostgreSQL. A browser
+smoke test (`frontend/e2e`, Playwright) walks the day-one path — create a
+project, staff it, set up the vault, enter rates, read the analysis, export —
+against a running stack:
+
+```bash
+cd frontend
+npx playwright install chromium          # once
+E2E_BASE_URL=http://localhost:8080 npm run e2e
+```
+
+The same checks, plus a build of both Docker images and the smoke tests
+against the Compose stack, run in GitHub Actions for pull requests and pushes
+to `main`.
 Backend dependencies are pinned: `requirements.txt` and `requirements-dev.txt`
 are compiled from the `.in` files with `pip-compile` (see `requirements.in`);
 edit the `.in` file and recompile rather than editing the pinned file by hand.

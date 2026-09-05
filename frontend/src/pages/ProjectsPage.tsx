@@ -202,7 +202,7 @@ export default function ProjectsPage() {
 
     const data = pendingImport
     setPendingImport(null)
-    setShowImportVault(false)
+    // The dialog closes itself: a setup still has to show the recovery key.
     importProject(data)
       .then(() => {
         setNotice('Project imported with encrypted financial values.')
@@ -620,6 +620,7 @@ function CreateProjectModal({
         <div>
           <Label>Project name</Label>
           <Input
+            aria-label="Project name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Project"
@@ -629,6 +630,7 @@ function CreateProjectModal({
         <div>
           <Label>Company</Label>
           <Input
+            aria-label="Company"
             value={company}
             onChange={(e) => setCompany(e.target.value)}
             placeholder="Company"

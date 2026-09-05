@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { useTheme } from '../theme/ThemeContext'
 import ErrorBoundary from './ErrorBoundary'
+import { VaultDialogHost } from '../vault/VaultGate'
 
 /** Monochrome line icons: they inherit `currentColor`, so the theme drives them. */
 type NavIcon = LucideIcon
@@ -265,6 +266,7 @@ export default function AppLayout() {
             <Outlet />
           </ErrorBoundary>
         </main>
+        <VaultDialogHost />
       </div>
     </div>
   )
