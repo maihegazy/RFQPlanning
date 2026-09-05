@@ -70,23 +70,29 @@ npm install
 npm run dev
 ```
 
-**Tests**:
+**Tests and lint**:
 
 ```bash
 cd backend
 pip install -r requirements-dev.txt
+ruff check .
 python3 -m pytest tests/
 
 cd ../frontend
 npm ci
+npm run lint
+npm run format:check   # or `npm run format` to apply Prettier
 npm test
 npm run typecheck
 npm run build
 ```
 
-The same backend and frontend checks run automatically in GitHub Actions for
-pull requests and pushes to `main`. Known audit defects are recorded as strict
-expected failures; each later fix must remove its matching marker.
+The same checks, plus a build of both Docker images, run in GitHub Actions for
+pull requests and pushes to `main`. Backend dependencies are pinned:
+`requirements.txt` and `requirements-dev.txt` are compiled from the `.in` files
+with `pip-compile` (see `requirements.in`); edit the `.in` file and recompile
+rather than editing the pinned file by hand. Known audit defects are recorded
+as strict expected failures; each later fix must remove its matching marker.
 
 ## Interface
 

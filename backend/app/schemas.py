@@ -1,7 +1,6 @@
 """Pydantic request/response schemas."""
 
 from datetime import date, datetime
-from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -14,7 +13,6 @@ from .config import (
     PROJECT_STATUSES,
     TICKET_SIZES,
 )
-
 
 # ---------------------------------------------------------------------------
 # Allocation periods
@@ -92,7 +90,7 @@ class RoleCreate(RoleBase):
                 raise ValueError(
                     "Allocation period start month must be before or equal to end month"
                 )
-        for current, following in zip(periods, periods[1:]):
+        for current, following in zip(periods, periods[1:], strict=False):
             if current.end_month >= following.start_month:
                 raise ValueError("Allocation periods cannot overlap")
         return self
@@ -147,7 +145,7 @@ class ProjectBase(BaseModel):
     end_month: int = Field(..., ge=1, le=12)
     status: str = "draft"
     win_probability_pct: float = Field(50.0, ge=0.0, le=100.0)
-    lost_reason: Optional[str] = Field(None, max_length=1000)
+    lost_reason: str | None = Field(None, max_length=1000)
 
     @field_validator("status")
     @classmethod
@@ -164,19 +162,19 @@ class ProjectBase(BaseModel):
 
 
 class ProjectCreate(ProjectBase):
-    template_id: Optional[str] = None
+    template_id: str | None = None
 
 
 class ProjectUpdate(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=255)
-    company: Optional[str] = Field(None, min_length=1, max_length=255)
-    start_year: Optional[int] = Field(None, ge=1900, le=2200)
-    start_month: Optional[int] = Field(None, ge=1, le=12)
-    end_year: Optional[int] = Field(None, ge=1900, le=2200)
-    end_month: Optional[int] = Field(None, ge=1, le=12)
-    status: Optional[str] = None
-    win_probability_pct: Optional[float] = Field(None, ge=0.0, le=100.0)
-    lost_reason: Optional[str] = Field(None, max_length=1000)
+    name: str | None = Field(None, min_length=1, max_length=255)
+    company: str | None = Field(None, min_length=1, max_length=255)
+    start_year: int | None = Field(None, ge=1900, le=2200)
+    start_month: int | None = Field(None, ge=1, le=12)
+    end_year: int | None = Field(None, ge=1900, le=2200)
+    end_month: int | None = Field(None, ge=1, le=12)
+    status: str | None = None
+    win_probability_pct: float | None = Field(None, ge=0.0, le=100.0)
+    lost_reason: str | None = Field(None, max_length=1000)
 
     @field_validator("status")
     @classmethod
@@ -190,7 +188,7 @@ class ProjectSummary(ProjectBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    base_project_id: Optional[int] = None
+    base_project_id: int | None = None
     is_winning_scenario: bool = False
     created_at: datetime
     updated_at: datetime
@@ -224,10 +222,10 @@ class RateConfigOut(BaseModel):
 
 
 class RateConfigUpdate(BaseModel):
-    sp_to_hours: Optional[float] = Field(None, ge=0.0)
-    risk_factor_pct: Optional[float] = Field(None, ge=0.0)
-    ticket_story_points: Optional[dict[str, float]] = None
-    ticket_quotas: Optional[dict[int, dict[str, float]]] = None
+    sp_to_hours: float | None = Field(None, ge=0.0)
+    risk_factor_pct: float | None = Field(None, ge=0.0)
+    ticket_story_points: dict[str, float] | None = None
+    ticket_quotas: dict[int, dict[str, float]] | None = None
 
     @field_validator("ticket_story_points")
     @classmethod
@@ -333,7 +331,7 @@ class LegacyProjectImport(BaseModel):
     dates: tuple[int, int, int, int]
     status: str = "draft"
     win_probability_pct: float = Field(50.0, ge=0.0, le=100.0)
-    lost_reason: Optional[str] = Field(None, max_length=1000)
+    lost_reason: str | None = Field(None, max_length=1000)
     features: list[LegacyFeatureImport] = Field(default_factory=list)
     rate_config: LegacyRateConfigImport = Field(default_factory=LegacyRateConfigImport)
 
@@ -423,8 +421,8 @@ class VaultPassphraseUpdate(BaseModel):
 
 
 class MoneyBlob(BaseModel):
-    encrypted_money: Optional[str] = None
-    money_iv: Optional[str] = Field(None, max_length=64)
+    encrypted_money: str | None = None
+    money_iv: str | None = Field(None, max_length=64)
 
 
 class GridRoleUpdate(BaseModel):
@@ -543,11 +541,11 @@ class HardwareItemBase(HardwareCatalogItemBase):
 
 
 class HardwareItemCreate(HardwareItemBase):
-    catalog_item_id: Optional[int] = None
+    catalog_item_id: int | None = None
 
 
 class HardwareItemUpdate(HardwareItemBase):
-    catalog_item_id: Optional[int] = None
+    catalog_item_id: int | None = None
 
 
 class HardwareItemOut(HardwareItemBase):
@@ -555,7 +553,7 @@ class HardwareItemOut(HardwareItemBase):
 
     id: int
     project_id: int
-    catalog_item_id: Optional[int] = None
+    catalog_item_id: int | None = None
     total: float = 0.0
 
 
@@ -621,15 +619,15 @@ class HwAssetInput(BaseModel):
     category: str = Field("", max_length=255)
     status: str = Field("", max_length=255)
     supplier: str = Field("", max_length=255)
-    purchase_date: Optional[date] = None
+    purchase_date: date | None = None
     purchase_cost: float = Field(0.0, ge=0.0)
     order_number: str = Field("", max_length=255)
-    eol_date: Optional[date] = None
+    eol_date: date | None = None
     assigned_employee: str = Field("", max_length=255)
     sw_license: str = Field("", max_length=255)
     purchased_by: str = Field("", max_length=255)
     purchase_type: str = Field("Not Purchased", max_length=32)
-    catalog_item_id: Optional[int] = None
+    catalog_item_id: int | None = None
 
 
 class HwAssetOut(HwAssetInput):
@@ -646,20 +644,20 @@ class HwLicenseInput(BaseModel):
     company: str = Field("", max_length=255)
     name: str = Field(..., min_length=1, max_length=255)
     product_key: str = Field("", max_length=255)
-    expiration_date: Optional[date] = None
+    expiration_date: date | None = None
     licensed_to_email: str = Field("", max_length=255)
     category: str = Field("", max_length=255)
     supplier: str = Field("", max_length=255)
     manufacturer: str = Field("", max_length=255)
     quantity: int = Field(1, ge=0)
-    purchase_date: Optional[date] = None
-    termination_date: Optional[date] = None
+    purchase_date: date | None = None
+    termination_date: date | None = None
     depreciation: str = Field("Not Purchased", max_length=32)
     maintained: bool = False
     purchase_cost: float = Field(0.0, ge=0.0)
     purchase_order_number: str = Field("", max_length=255)
     notes: str = Field("", max_length=4000)
-    catalog_item_id: Optional[int] = None
+    catalog_item_id: int | None = None
 
 
 class HwLicenseOut(HwLicenseInput):

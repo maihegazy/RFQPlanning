@@ -39,10 +39,7 @@ def item_total(item: models.HardwareItem) -> float:
     """Yearly items cost unit_cost x qty for every selected year; a one-time
     purchase costs unit_cost x qty once (in its selected purchase year)."""
     years = item_years(item)
-    if item.billing == "once":
-        occurrences = 1
-    else:
-        occurrences = len(years)
+    occurrences = 1 if item.billing == "once" else len(years)
     return round(item.unit_cost * item.qty * occurrences, 2)
 
 
@@ -267,7 +264,7 @@ def hardware_plan_xlsx(project_id: int, db: Session = Depends(get_db)):
     year_offset = 5
     total_col = year_offset + len(years)
     for row_idx, (item, record) in enumerate(
-        zip(plan["items"], project.hardware_items), start=1
+        zip(plan["items"], project.hardware_items, strict=True), start=1
     ):
         sheet.write(row_idx, 0, item["aspice"], text_fmt)
         sheet.write(row_idx, 1, item["name"], text_fmt)

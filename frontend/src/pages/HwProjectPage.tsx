@@ -20,16 +20,26 @@ import type {
 } from '../types'
 import { yearSpan } from '../hardware/depreciation'
 import { formatEuro, formatNumber } from '../utils'
-import { Button, Card, EmptyState, ErrorBanner, Input, Label, Modal, Spinner } from '../components/ui'
+import {
+  Button,
+  Card,
+  EmptyState,
+  ErrorBanner,
+  Input,
+  Label,
+  Modal,
+  Spinner,
+} from '../components/ui'
 import HwAssetTable from '../components/HwAssetTable'
 import HwLicenseTable from '../components/HwLicenseTable'
 import HwImportDialog from '../components/HwImportDialog'
-import HwBudgetFields, {
+import HwBudgetFields from '../components/HwBudgetFields'
+import {
   budgetBreakdown,
   budgetPayload,
   draftFromProject,
   type BudgetDraft,
-} from '../components/HwBudgetFields'
+} from '../hardware/budget'
 
 type TabKey = 'summary' | 'assets' | 'licenses'
 type RegisterKey = 'assets' | 'licenses'
@@ -157,9 +167,7 @@ function plural(count: number, noun: string): string {
 
 function Money({ value, muted = false }: { value: number; muted?: boolean }) {
   if (value === 0) return <span className="text-slate-600">—</span>
-  return (
-    <span className={muted ? 'text-slate-400' : 'text-slate-200'}>{formatEuro(value)}</span>
-  )
+  return <span className={muted ? 'text-slate-400' : 'text-slate-200'}>{formatEuro(value)}</span>
 }
 
 function KpiTile({
@@ -202,8 +210,8 @@ function UtilisationBar({
   if (budget <= 0) {
     return (
       <div className="rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm text-slate-400">
-        No budget set for this project yet — use “Edit project” to add the assets and
-        licenses budgets, and this bar will track them.
+        No budget set for this project yet — use “Edit project” to add the assets and licenses
+        budgets, and this bar will track them.
       </div>
     )
   }
@@ -281,15 +289,7 @@ function RenewalRisk({ risk }: { risk: HwRenewalRisk }) {
   )
 }
 
-function PivotCard({
-  title,
-  pivot,
-  empty,
-}: {
-  title: string
-  pivot: HwPivot
-  empty: string
-}) {
+function PivotCard({ title, pivot, empty }: { title: string; pivot: HwPivot; empty: string }) {
   const columnTotal = (status: string) =>
     pivot.rows.reduce((sum, row) => sum + (row.counts[status] ?? 0), 0)
   const grandTotal = pivot.rows.reduce((sum, row) => sum + row.total, 0)
@@ -400,10 +400,7 @@ function SummaryYearTable({
             <th scope="col" className="py-2 pr-3 text-right">
               Planned licenses
             </th>
-            <th
-              scope="col"
-              className="border-l border-slate-800 py-2 pl-3 pr-3 text-right"
-            >
+            <th scope="col" className="border-l border-slate-800 py-2 pl-3 pr-3 text-right">
               Special cases assets
             </th>
             <th scope="col" className="py-2 text-right">
@@ -500,11 +497,7 @@ function SummaryYearTable({
   )
 }
 
-function ExpiringList({
-  rows,
-}: {
-  rows: HwSummary['expiring']
-}) {
+function ExpiringList({ rows }: { rows: HwSummary['expiring'] }) {
   if (rows.length === 0) {
     return <EmptyState>No license expires within the next 90 days.</EmptyState>
   }
@@ -584,9 +577,9 @@ function CatalogPickerModal({
     <Modal title="Add from hardware catalog" size="lg" onClose={onClose}>
       <div className="space-y-4">
         <p className="text-sm text-slate-400">
-          Picking an item appends a prefilled row to the <strong>{registerLabel}</strong>{' '}
-          register — name, supplier and cost come from the catalog, the dates are yours to
-          fill in. Nothing is written until you save the register.
+          Picking an item appends a prefilled row to the <strong>{registerLabel}</strong> register —
+          name, supplier and cost come from the catalog, the dates are yours to fill in. Nothing is
+          written until you save the register.
         </p>
 
         <div className="relative">
@@ -613,10 +606,7 @@ function CatalogPickerModal({
         ) : (
           <ul className="max-h-96 divide-y divide-slate-800 overflow-y-auto rounded-lg border border-slate-800">
             {filtered.map((item) => (
-              <li
-                key={item.id}
-                className="flex items-center justify-between gap-4 px-3 py-2.5"
-              >
+              <li key={item.id} className="flex items-center justify-between gap-4 px-3 py-2.5">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-slate-200">{item.name}</p>
                   <p className="truncate text-xs text-slate-500">
@@ -711,7 +701,9 @@ function EditProjectModal({
             <Label>Company</Label>
             <Input
               aria-label="Company"
-              value={form.company} onChange={(e) => patch({ company: e.target.value })} />
+              value={form.company}
+              onChange={(e) => patch({ company: e.target.value })}
+            />
           </div>
         </div>
 
@@ -998,7 +990,8 @@ export default function HwProjectPage() {
     }
   }
 
-  const noticeFor = (scope: TabKey) => (notice !== null && notice.scope === scope ? notice.text : '')
+  const noticeFor = (scope: TabKey) =>
+    notice !== null && notice.scope === scope ? notice.text : ''
 
   const discardAssets = () => {
     setNotice(null)
@@ -1246,9 +1239,8 @@ export default function HwProjectPage() {
               onAdjust={setAdjustment}
             />
             <p className="mt-3 max-w-4xl text-xs text-slate-500">
-              Special cases are the working document's manual budget deltas. The actual
-              columns already include the saved values; a change here only reaches them once
-              it is saved.
+              Special cases are the working document's manual budget deltas. The actual columns
+              already include the saved values; a change here only reaches them once it is saved.
             </p>
           </Card>
 

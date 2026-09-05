@@ -120,7 +120,9 @@ def _row_year_costs(kind: str, purchase_date: datetime.date | None,
                     years: list[int]) -> dict[str, Any]:
     raw = [year_cost(year, kind, purchase_date, end_date, cost) for year in years]
     return {
-        "per_year": {str(year): round(value, 2) for year, value in zip(years, raw)},
+        "per_year": {
+            str(year): round(value, 2) for year, value in zip(years, raw, strict=True)
+        },
         "total": round(sum(raw), 2),
     }
 
@@ -294,7 +296,8 @@ def _budget_rows(assets: Any, licenses: Any, adjustments: Any,
         raw.append((
             year,
             sum(_asset_year_cost(a, year) for a in assets) + special["assets"].get(year, 0.0),
-            sum(_license_year_cost(l, year) for l in licenses) + special["licenses"].get(year, 0.0),
+            sum(_license_year_cost(row, year) for row in licenses)
+            + special["licenses"].get(year, 0.0),
             _planned_cost(assets, "purchase_type", year),
             _planned_cost(licenses, "depreciation", year),
         ))

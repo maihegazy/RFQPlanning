@@ -153,7 +153,7 @@ def test_hw_migration_round_trip(tmp_path):
     config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
     try:
         run_migrations(fresh_engine)
-        assert HW_TABLES <= set(inspect(fresh_engine).get_table_names())
+        assert set(inspect(fresh_engine).get_table_names()) >= HW_TABLES
 
         with fresh_engine.begin() as connection:
             config.attributes["connection"] = connection
@@ -165,7 +165,7 @@ def test_hw_migration_round_trip(tmp_path):
             command.upgrade(config, "head")
 
         inspector = inspect(fresh_engine)
-        assert HW_TABLES <= set(inspector.get_table_names())
+        assert set(inspector.get_table_names()) >= HW_TABLES
         for table in sorted(HW_TABLES):
             mapped = {column.name for column in Base.metadata.tables[table].columns}
             assert {column["name"] for column in inspector.get_columns(table)} == mapped

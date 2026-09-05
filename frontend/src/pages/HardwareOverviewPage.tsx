@@ -17,12 +17,8 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { api } from '../api'
-import HwBudgetFields, {
-  budgetBreakdown,
-  EMPTY_BUDGET,
-  budgetPayload,
-  type BudgetDraft,
-} from '../components/HwBudgetFields'
+import HwBudgetFields from '../components/HwBudgetFields'
+import { budgetBreakdown, EMPTY_BUDGET, budgetPayload, type BudgetDraft } from '../hardware/budget'
 import type {
   HwLicenseExpiry,
   HwOverview,
@@ -255,12 +251,16 @@ function SpendByYear({ years, totals }: { years: HwYearRow[]; totals: HwYearRow 
         <tfoot>
           <tr className="border-t-2 border-slate-700 font-semibold text-slate-100">
             <td className="py-2 pr-4">Total</td>
-            <td className="py-2 pr-4 text-right tabular-nums">{formatEuro(totals.actual_assets)}</td>
+            <td className="py-2 pr-4 text-right tabular-nums">
+              {formatEuro(totals.actual_assets)}
+            </td>
             <td className="py-2 pr-4 text-right tabular-nums">
               {formatEuro(totals.actual_licenses)}
             </td>
             <td className="py-2 pr-4 text-right tabular-nums">{formatEuro(totals.actual_total)}</td>
-            <td className="py-2 pr-4 text-right tabular-nums">{formatEuro(totals.planned_total)}</td>
+            <td className="py-2 pr-4 text-right tabular-nums">
+              {formatEuro(totals.planned_total)}
+            </td>
             <td className="py-2 pr-4 text-right tabular-nums">{formatEuro(totals.grand_total)}</td>
             <td className="py-2" />
           </tr>
@@ -474,10 +474,7 @@ function expiryLabel(daysLeft: number): string {
 }
 
 function ExpiringList({ expiring }: { expiring: HwLicenseExpiry[] }) {
-  const rows = useMemo(
-    () => [...expiring].sort((a, b) => a.days_left - b.days_left),
-    [expiring],
-  )
+  const rows = useMemo(() => [...expiring].sort((a, b) => a.days_left - b.days_left), [expiring])
 
   return (
     <ul className="max-h-96 overflow-y-auto">
@@ -727,8 +724,7 @@ export default function HardwareOverviewPage() {
     const needle = query.trim().toLowerCase()
     const filtered = needle
       ? rows.filter(
-          (p) =>
-            p.name.toLowerCase().includes(needle) || p.company.toLowerCase().includes(needle),
+          (p) => p.name.toLowerCase().includes(needle) || p.company.toLowerCase().includes(needle),
         )
       : [...rows]
     filtered.sort((a, b) => {
@@ -791,8 +787,8 @@ export default function HardwareOverviewPage() {
           <Card title="Spend by year" actions={<BarLegend />} className="mb-6">
             {overview.years.length === 0 ? (
               <EmptyState>
-                No purchases or planned purchases yet — years appear once assets or licenses
-                carry dates.
+                No purchases or planned purchases yet — years appear once assets or licenses carry
+                dates.
               </EmptyState>
             ) : (
               <SpendByYear years={overview.years} totals={overview.totals} />

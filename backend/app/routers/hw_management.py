@@ -395,7 +395,7 @@ def import_hw_workbook(project_id: int, file: UploadFile = File(...),
     try:
         parsed = hw_excel.parse_workbook(file.file.read())
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     preview = schemas.HwImportPreview(
         assets=parsed["assets"],

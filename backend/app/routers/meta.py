@@ -4,7 +4,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
-from ..database import get_db
 from ..config import (
     ASPICE_PROCESSES,
     HARDWARE_BILLING,
@@ -14,6 +13,7 @@ from ..config import (
     PROJECT_STATUSES,
     TICKET_SIZES,
 )
+from ..database import get_db
 from ..templates import TEMPLATES, normalize_roles
 
 router = APIRouter(prefix="/api", tags=["meta"])
@@ -59,7 +59,7 @@ def delete_template(template_id: str, db: Session = Depends(get_db)):
     try:
         custom_id = int(template_id.removeprefix("custom-"))
     except ValueError:
-        raise HTTPException(status_code=404, detail="Template not found")
+        raise HTTPException(status_code=404, detail="Template not found") from None
     record = db.get(models.CustomTemplate, custom_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Template not found")
