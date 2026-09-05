@@ -4,6 +4,16 @@ All notable changes to the RFQ Planner web application. The project has no
 versioned releases yet; entries are grouped by the phases of the September
 2026 review (`docs/project-review-2026-09.md`), which this changelog closes.
 
+## Unreleased
+
+### Added
+- **Hardware → Projects** (`/hardware/projects`): the purchasing projects on a
+  page of their own, with their totals, a search box, the sortable project
+  table and the "New Project" dialog, which all moved off the management
+  overview. The page renders `GET /api/hw/projects` as it comes, so scoping
+  that endpoint to the signed-in user is all a per-leader view will need.
+  The overview keeps the cross-project figures and links to the new page.
+
 ## Unreleased — September 2026 review, phases 0–8
 
 ### Guardrails (phase 0)

@@ -155,7 +155,7 @@ edit the `.in` file and recompile rather than editing the pinned file by hand.
 
 The app runs inside a portal shell (`components/AppLayout`): a persistent left
 sidebar with the Vehiclevo brand and collapsible navigation groups (RFQ
-Planning → Projects, Overview; Hardware → Overview, Catalog, Ordering
+Planning → Projects, Overview; Hardware → Overview, Projects, Catalog, Ordering
 Process), and a top bar with a sidebar toggle, a **light/dark theme switch**
 and an account menu. Navigation uses monochrome line icons (`lucide-react`)
 that inherit the current text colour. The sidebar hides behind the toggle on
@@ -278,8 +278,16 @@ projects.
   planned / remaining tiles, then a Summary tab (per-year budget table including
   the workbook's manual "Special cases" deltas, license renewal risk, and the
   category × status pivots) plus the two registers.
-- **Management overview** (`/hardware`) — the same picture across every project:
-  spend by year, a sortable project table with budget utilisation, the
+- **Project list** (`/hardware/projects`) — every purchasing project on a page
+  of its own: the totals of the listed projects, a search box, and a sortable
+  table (assets, licenses, budget, committed, planned, remaining, utilisation)
+  linking to each project. New projects are created here. The page shows
+  exactly what `GET /api/hw/projects` returns, so when the deployment starts
+  identifying users (see "Deployment contract") that endpoint is the one place
+  to scope, and a project leader then sees only their own projects — on this
+  page and nowhere else.
+- **Management overview** (`/hardware`) — the picture across every project:
+  budget / committed / planned / remaining, spend by year, the
   expired / 30 / 60 / 90-day license renewal risk with the expiring list, and the
   asset pivot. This replaces the workbook's Assets Dashboard and Summary sheets.
 - **Excel in and out** — *Import Excel* accepts a workbook with an `Assets`

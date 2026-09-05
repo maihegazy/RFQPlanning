@@ -77,3 +77,32 @@ test('create a project, staff it, budget it, report on it and export', async ({ 
   await page.getByLabel(`Export ${name} as JSON`).click()
   expect((await exportDownload).suggestedFilename()).toBe(`${name}.json`)
 })
+
+/**
+ * Hardware purchasing projects have a page of their own, reachable from the
+ * sidebar, and creating one from there opens its workspace.
+ */
+test('hardware projects are listed and created on their own page', async ({ page }) => {
+  const name = `HW smoke ${Date.now()}`
+
+  await page.goto('/hardware')
+  await expect(page.getByRole('heading', { level: 1, name: 'Hardware Management' })).toBeVisible()
+
+  // The sidebar's Hardware group leads to the projects page
+  await page.getByRole('link', { name: 'Projects', exact: true }).last().click()
+  await expect(page).toHaveURL(/\/hardware\/projects$/)
+  await expect(page.getByRole('heading', { level: 1, name: 'Hardware Projects' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'New Project', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'New hardware project' })
+  await dialog.getByLabel('Name').fill(name)
+  await dialog.getByLabel('Overall budget (€)').fill('5000')
+  await dialog.getByRole('button', { name: 'Create project' }).click()
+
+  // Creating opens the new project's workspace ...
+  await expect(page.getByRole('heading', { level: 1, name })).toBeVisible()
+
+  // ... and the project is on the list page afterwards
+  await page.goBack()
+  await expect(page.getByRole('link', { name })).toBeVisible()
+})

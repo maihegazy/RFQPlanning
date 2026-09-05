@@ -1,52 +1,23 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
-  ArrowDown,
-  ArrowUp,
-  ArrowUpDown,
   CalendarClock,
   Download,
   ExternalLink,
+  FolderKanban,
   HardDrive,
   KeyRound,
   Layers,
-  Plus,
-  Search,
   Server,
   TriangleAlert,
   type LucideIcon,
 } from 'lucide-react'
 import { api } from '../api'
-import HwBudgetFields from '../components/HwBudgetFields'
-import PlanningWindowFields from '../components/PlanningWindowFields'
-import { EMPTY_WINDOW, windowPayload, type PlanningWindowDraft } from '../hardware/planningWindow'
-import { budgetBreakdown, EMPTY_BUDGET, budgetPayload, type BudgetDraft } from '../hardware/budget'
-import type {
-  HwLicenseExpiry,
-  HwOverview,
-  HwPivot,
-  HwProject,
-  HwProjectRollup,
-  HwYearRow,
-} from '../types'
-import {
-  Button,
-  Card,
-  EmptyState,
-  ErrorBanner,
-  Input,
-  KpiTile,
-  Label,
-  Modal,
-  Spinner,
-} from '../components/ui'
+import { budgetBreakdown } from '../hardware/budget'
+import { share, utilisationTone } from '../hardware/utilisation'
+import type { HwLicenseExpiry, HwOverview, HwPivot, HwYearRow } from '../types'
+import { Button, Card, EmptyState, ErrorBanner, KpiTile, Spinner } from '../components/ui'
 import { formatEuro, formatNumber } from '../utils'
-
-/** Share of `total` taken by `value`, clamped to 0..100 and safe when there is no total. */
-function share(value: number, total: number): number {
-  if (!(total > 0)) return 0
-  return Math.max(0, Math.min(100, (value / total) * 100))
-}
 
 function errorMessage(err: unknown): string {
   return err instanceof Error && err.message ? err.message : 'Something went wrong.'
@@ -56,9 +27,20 @@ function errorMessage(err: unknown): string {
 /* KPI tiles                                                                   */
 /* -------------------------------------------------------------------------- */
 
-function CountTile({ Icon, label, value }: { Icon: LucideIcon; label: string; value: number }) {
-  return (
-    <div className="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3">
+function CountTile({
+  Icon,
+  label,
+  value,
+  to,
+}: {
+  Icon: LucideIcon
+  label: string
+  value: number
+  /** Renders the tile as a link when the figure has a page behind it. */
+  to?: string
+}) {
+  const body = (
+    <>
       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-indigo-800 bg-indigo-950 text-indigo-300">
         <Icon className="h-4 w-4" strokeWidth={1.75} />
       </span>
@@ -66,36 +48,15 @@ function CountTile({ Icon, label, value }: { Icon: LucideIcon; label: string; va
         <p className="text-lg font-semibold tabular-nums text-slate-100">{value}</p>
         <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
       </div>
-    </div>
+    </>
   )
-}
-
-/** Colour carries urgency here, so the percentage is always spelled out beside the bar. */
-function utilisationTone(ratio: number): string {
-  if (ratio > 100) return 'bg-rose-500'
-  if (ratio >= 90) return 'bg-amber-500'
-  return 'bg-indigo-500'
-}
-
-function UtilisationCell({ used, budget }: { used: number; budget: number }) {
-  if (!(budget > 0)) return <span className="text-xs text-slate-600">no budget</span>
-  const ratio = (used / budget) * 100
+  const shell =
+    'flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3'
+  if (to === undefined) return <div className={shell}>{body}</div>
   return (
-    <div className="flex items-center justify-end gap-2">
-      <div className="h-1.5 w-20 overflow-hidden rounded-full bg-slate-800">
-        <div
-          className={`h-full rounded-full ${utilisationTone(ratio)}`}
-          style={{ width: `${share(used, budget)}%` }}
-        />
-      </div>
-      <span
-        className={`w-11 shrink-0 text-right text-xs tabular-nums ${
-          ratio > 100 ? 'text-rose-300' : 'text-slate-400'
-        }`}
-      >
-        {formatNumber(ratio, 0)}%
-      </span>
-    </div>
+    <Link to={to} className={`${shell} transition-colors hover:border-indigo-800`}>
+      {body}
+    </Link>
   )
 }
 
@@ -148,7 +109,12 @@ function Kpis({ overview }: { overview: HwOverview }) {
       </div>
 
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
-        <CountTile Icon={Layers} label="Projects" value={overview.project_count} />
+        <CountTile
+          Icon={Layers}
+          label="Projects"
+          value={overview.project_count}
+          to="/hardware/projects"
+        />
         <CountTile Icon={HardDrive} label="Assets" value={overview.asset_count} />
         <CountTile Icon={KeyRound} label="Licenses" value={overview.license_count} />
       </div>
@@ -261,155 +227,6 @@ function BarLegend() {
         <span className="h-2 w-2 rounded-full bg-sky-500" />
         Planned
       </span>
-    </div>
-  )
-}
-
-/* -------------------------------------------------------------------------- */
-/* Projects                                                                    */
-/* -------------------------------------------------------------------------- */
-
-type SortKey =
-  | 'name'
-  | 'company'
-  | 'asset_count'
-  | 'license_count'
-  | 'effective_budget'
-  | 'actual_total'
-  | 'planned_total'
-  | 'remaining'
-  | 'utilisation'
-
-type SortDir = 'asc' | 'desc'
-
-const PROJECT_COLUMNS: { key: SortKey; label: string; numeric: boolean }[] = [
-  { key: 'name', label: 'Project', numeric: false },
-  { key: 'company', label: 'Company', numeric: false },
-  { key: 'asset_count', label: 'Assets', numeric: true },
-  { key: 'license_count', label: 'Licenses', numeric: true },
-  { key: 'effective_budget', label: 'Budget', numeric: true },
-  { key: 'actual_total', label: 'Committed', numeric: true },
-  { key: 'planned_total', label: 'Planned', numeric: true },
-  { key: 'remaining', label: 'Remaining', numeric: true },
-  { key: 'utilisation', label: 'Utilisation', numeric: true },
-]
-
-function sortValue(project: HwProjectRollup, key: SortKey): string | number {
-  switch (key) {
-    case 'name':
-      return project.name.toLowerCase()
-    case 'company':
-      return project.company.toLowerCase()
-    // Projects without a budget have no utilisation; -1 parks them at the end.
-    case 'utilisation':
-      return project.effective_budget > 0 ? project.actual_total / project.effective_budget : -1
-    default:
-      return project[key]
-  }
-}
-
-function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
-  if (!active) return <ArrowUpDown className="h-3 w-3 text-slate-600" strokeWidth={2} />
-  return dir === 'asc' ? (
-    <ArrowUp className="h-3 w-3" strokeWidth={2} />
-  ) : (
-    <ArrowDown className="h-3 w-3" strokeWidth={2} />
-  )
-}
-
-function ProjectsTable({
-  projects,
-  sortKey,
-  sortDir,
-  onSort,
-}: {
-  projects: HwProjectRollup[]
-  sortKey: SortKey
-  sortDir: SortDir
-  onSort: (key: SortKey) => void
-}) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-xs uppercase tracking-wide text-slate-500">
-            {PROJECT_COLUMNS.map((column) => {
-              const active = column.key === sortKey
-              return (
-                <th
-                  key={column.key}
-                  aria-sort={active ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
-                  className={`pb-2 font-medium ${column.numeric ? 'pl-4 text-right' : 'pr-4 text-left'}`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => onSort(column.key)}
-                    className={`inline-flex w-full items-center gap-1 transition-colors hover:text-slate-300 ${
-                      column.numeric ? 'justify-end' : ''
-                    } ${active ? 'text-indigo-300' : ''}`}
-                  >
-                    {column.label}
-                    <SortIcon active={active} dir={sortDir} />
-                  </button>
-                </th>
-              )
-            })}
-          </tr>
-        </thead>
-        <tbody>
-          {projects.map((project) => (
-            <tr key={project.id} className="border-t border-slate-800/60">
-              <td className="py-2 pr-4">
-                <div className="flex items-center gap-2">
-                  <Link
-                    to={`/hardware/projects/${project.id}`}
-                    className="font-medium text-slate-200 hover:text-indigo-400"
-                  >
-                    {project.name}
-                  </Link>
-                  {project.licenses_expired > 0 && (
-                    <span
-                      className="flex items-center gap-1 text-xs text-rose-300"
-                      title={`${project.licenses_expired} expired license(s)`}
-                    >
-                      <TriangleAlert className="h-3.5 w-3.5" strokeWidth={2} />
-                      {project.licenses_expired}
-                    </span>
-                  )}
-                </div>
-              </td>
-              <td className="py-2 pr-4 text-slate-400">
-                {project.company || <span className="text-slate-600">—</span>}
-              </td>
-              <td className="py-2 pl-4 text-right tabular-nums text-slate-400">
-                {project.asset_count}
-              </td>
-              <td className="py-2 pl-4 text-right tabular-nums text-slate-400">
-                {project.license_count}
-              </td>
-              <td className="py-2 pl-4 text-right tabular-nums text-slate-400">
-                {formatEuro(project.effective_budget)}
-              </td>
-              <td className="py-2 pl-4 text-right tabular-nums text-slate-200">
-                {formatEuro(project.actual_total)}
-              </td>
-              <td className="py-2 pl-4 text-right tabular-nums text-slate-400">
-                {formatEuro(project.planned_total)}
-              </td>
-              <td
-                className={`py-2 pl-4 text-right tabular-nums ${
-                  project.remaining < 0 ? 'text-rose-300' : 'text-slate-200'
-                }`}
-              >
-                {formatEuro(project.remaining)}
-              </td>
-              <td className="py-2 pl-4">
-                <UtilisationCell used={project.actual_total} budget={project.effective_budget} />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
   )
 }
@@ -550,119 +367,6 @@ function PivotTable({ pivot }: { pivot: HwPivot }) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* New project                                                                 */
-/* -------------------------------------------------------------------------- */
-
-function NewProjectModal({
-  onClose,
-  onCreated,
-}: {
-  onClose: () => void
-  onCreated: (project: HwProject) => void
-}) {
-  const [name, setName] = useState('')
-  const [company, setCompany] = useState('')
-  const [description, setDescription] = useState('')
-  const [budget, setBudget] = useState<BudgetDraft>(EMPTY_BUDGET)
-  const [window, setWindow] = useState<PlanningWindowDraft>(EMPTY_WINDOW)
-  const [portalReference, setPortalReference] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (saving || !name.trim()) return
-    setSaving(true)
-    setError('')
-    try {
-      const created = await api.createHwProject({
-        name: name.trim(),
-        company: company.trim(),
-        description: description.trim(),
-        ...budgetPayload(budget),
-        ...windowPayload(window),
-        portal_reference: portalReference.trim(),
-      })
-      // No setSaving(false): the caller navigates away and unmounts this form.
-      onCreated(created)
-    } catch (err) {
-      setError(errorMessage(err))
-      setSaving(false)
-    }
-  }
-
-  return (
-    <Modal title="New hardware project" onClose={onClose} size="lg">
-      <form onSubmit={submit} className="space-y-4">
-        {error && <ErrorBanner message={error} />}
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <Label>Name</Label>
-            <Input
-              aria-label="Name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Platform HW 2026"
-              autoFocus
-              required
-            />
-          </div>
-          <div>
-            <Label>Company</Label>
-            <Input
-              aria-label="Company"
-              value={company}
-              onChange={(e) => setCompany(e.target.value)}
-              placeholder="Owning entity"
-            />
-          </div>
-        </div>
-
-        <div>
-          <Label>Description</Label>
-          <textarea
-            aria-label="Description"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={3}
-            className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-            placeholder="What this purchasing project covers"
-          />
-        </div>
-
-        <HwBudgetFields draft={budget} onChange={setBudget} />
-
-        <PlanningWindowFields draft={window} onChange={setWindow} />
-
-        <div className="sm:max-w-xs">
-          <Label>Portal reference</Label>
-          <Input
-            aria-label="Portal reference"
-            value={portalReference}
-            onChange={(e) => setPortalReference(e.target.value)}
-            placeholder="Optional"
-          />
-        </div>
-
-        <p className="text-xs text-slate-500">
-          The budget and the portal reference can be changed later on the project page.
-        </p>
-
-        <div className="flex justify-end gap-2 border-t border-slate-800 pt-4">
-          <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button type="submit" disabled={saving || !name.trim()}>
-            {saving ? 'Creating…' : 'Create project'}
-          </Button>
-        </div>
-      </form>
-    </Modal>
-  )
-}
-
-/* -------------------------------------------------------------------------- */
 /* Page                                                                        */
 /* -------------------------------------------------------------------------- */
 
@@ -670,14 +374,9 @@ const ACTION_LINK =
   'inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3.5 py-2 text-sm font-medium text-slate-200 transition-colors hover:bg-slate-700'
 
 export default function HardwareOverviewPage() {
-  const navigate = useNavigate()
   const [overview, setOverview] = useState<HwOverview | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [creating, setCreating] = useState(false)
-  const [query, setQuery] = useState('')
-  const [sortKey, setSortKey] = useState<SortKey>('actual_total')
-  const [sortDir, setSortDir] = useState<SortDir>('desc')
 
   const load = useCallback(() => {
     setLoading(true)
@@ -692,36 +391,6 @@ export default function HardwareOverviewPage() {
   useEffect(() => {
     load()
   }, [load])
-
-  const sortBy = (key: SortKey) => {
-    if (key === sortKey) {
-      setSortDir((dir) => (dir === 'asc' ? 'desc' : 'asc'))
-      return
-    }
-    setSortKey(key)
-    // Names read best A→Z; money and counts read best largest-first.
-    setSortDir(key === 'name' || key === 'company' ? 'asc' : 'desc')
-  }
-
-  const visibleProjects = useMemo(() => {
-    const rows = overview?.projects ?? []
-    const needle = query.trim().toLowerCase()
-    const filtered = needle
-      ? rows.filter(
-          (p) => p.name.toLowerCase().includes(needle) || p.company.toLowerCase().includes(needle),
-        )
-      : [...rows]
-    filtered.sort((a, b) => {
-      const left = sortValue(a, sortKey)
-      const right = sortValue(b, sortKey)
-      const cmp =
-        typeof left === 'string' && typeof right === 'string'
-          ? left.localeCompare(right)
-          : Number(left) - Number(right)
-      return sortDir === 'asc' ? cmp : -cmp
-    })
-    return filtered
-  }, [overview, query, sortKey, sortDir])
 
   return (
     <div className="mx-auto max-w-7xl px-6 py-8">
@@ -738,10 +407,10 @@ export default function HardwareOverviewPage() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={() => setCreating(true)} className="inline-flex items-center gap-1.5">
-            <Plus className="h-4 w-4" strokeWidth={2} />
-            New Project
-          </Button>
+          <Link to="/hardware/projects" className={ACTION_LINK}>
+            <FolderKanban className="h-4 w-4" strokeWidth={1.75} />
+            Projects
+          </Link>
           <Link to="/hardware-catalog" className={ACTION_LINK}>
             <ExternalLink className="h-4 w-4" strokeWidth={1.75} />
             Catalog
@@ -780,55 +449,6 @@ export default function HardwareOverviewPage() {
           </Card>
 
           <Card
-            title={`Projects (${overview.projects.length})`}
-            actions={
-              <div className="w-64">
-                <div className="relative">
-                  <Search
-                    className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
-                    strokeWidth={1.75}
-                  />
-                  <Input
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search projects"
-                    aria-label="Search projects"
-                    className="pl-9"
-                  />
-                </div>
-              </div>
-            }
-            className="mb-6"
-          >
-            {overview.projects.length === 0 ? (
-              <EmptyState>
-                <p>No hardware projects yet.</p>
-                <p className="mt-1">
-                  A project holds its own asset and license registers, budget and depreciation.
-                </p>
-                <div className="mt-4 flex justify-center">
-                  <Button
-                    onClick={() => setCreating(true)}
-                    className="inline-flex items-center gap-1.5"
-                  >
-                    <Plus className="h-4 w-4" strokeWidth={2} />
-                    Create the first project
-                  </Button>
-                </div>
-              </EmptyState>
-            ) : visibleProjects.length === 0 ? (
-              <EmptyState>No project matches “{query.trim()}”.</EmptyState>
-            ) : (
-              <ProjectsTable
-                projects={visibleProjects}
-                sortKey={sortKey}
-                sortDir={sortDir}
-                onSort={sortBy}
-              />
-            )}
-          </Card>
-
-          <Card
             title="License renewal risk"
             actions={
               <span className="flex items-center gap-1.5 text-xs text-slate-500">
@@ -859,13 +479,6 @@ export default function HardwareOverviewPage() {
             )}
           </Card>
         </>
-      )}
-
-      {creating && (
-        <NewProjectModal
-          onClose={() => setCreating(false)}
-          onCreated={(project) => navigate(`/hardware/projects/${project.id}`)}
-        />
       )}
     </div>
   )
